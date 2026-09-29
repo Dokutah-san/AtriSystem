@@ -1,30 +1,9 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { Jimp } from 'jimp';
+import { Jimp, loadFont } from 'jimp';
+import { SANS_32_WHITE } from '@jimp/plugin-print/fonts';
 
 /**
- * Fungsi untuk mencetak teks bergaya Meme (Font Putih + Outline Hitam)
- */
-function printMemeText(image, font, text, yPos, stickerSize) {
-    const formattedText = text.toUpperCase();
-
-    // Trik Outline Hitam: Cetak teks warna hitam di 8 arah offset (kiri, kanan, atas, bawah, diagonal)
-    // Karena Jimp bitmap font bawaan adalah putih, kita bisa memutar warna atau membuat bayangan tebal
-    
-    // Cetak Teks Utama (Putih) di Tengah
-    image.print({
-        font: font,
-        x: 0,
-        y: yPos,
-        text: {
-            text: formattedText,
-            alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-        },
-        maxWidth: stickerSize
-    });
-}
-
-/**
- * Memproses gambar + teks meme
+ * Memproses gambar + overlay teks meme
  */
 async function processMemeSticker(imageBuffer, textArgs) {
     const stickerSize = 512;
@@ -50,17 +29,35 @@ async function processMemeSticker(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        // Gunakan Font Besar bawaan Jimp
-        const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+        // Muat Font Bitmap Jimp v1.x via loadFont()
+        const font = await loadFont(SANS_32_WHITE);
 
         // Cetak Teks Atas
         if (topText) {
-            printMemeText(image, font, topText, 20, stickerSize);
+            image.print({
+                font: font,
+                x: 0,
+                y: 20,
+                text: {
+                    text: topText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+                },
+                maxWidth: stickerSize
+            });
         }
 
         // Cetak Teks Bawah
         if (bottomText) {
-            printMemeText(image, font, bottomText, stickerSize - 70, stickerSize);
+            image.print({
+                font: font,
+                x: 0,
+                y: stickerSize - 70,
+                text: {
+                    text: bottomText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+                },
+                maxWidth: stickerSize
+            });
         }
     }
 
