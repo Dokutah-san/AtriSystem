@@ -1,6 +1,5 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
-import { loadFont } from '@jimp/plugin-print';
 import { loadFont } from 'jimp';
 import { SANS_32_WHITE, SANS_16_WHITE } from '@jimp/plugin-print/fonts';
 import sharp from 'sharp';
