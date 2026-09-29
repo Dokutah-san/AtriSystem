@@ -169,7 +169,7 @@ async function convertToWebp(inputBuffer) {
 
 export default {
     name: 'stiker',
-    description: 'Ubah gambar/stiker menjadi stiker WA dengan teks meme & metadata AtriAssisten.',
+    description: 'Ubah gambar menjadi stiker',
     execute: async (sock, from, msg, args) => {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
