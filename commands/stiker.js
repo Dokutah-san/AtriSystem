@@ -86,8 +86,8 @@ async function convertToWebp(inputBuffer) {
         // Tulis buffer ke file sementara
         fs.writeFileSync(inputPath, inputBuffer);
 
-        // Konversi ke WebP menggunakan FFmpeg
-        await execPromise(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -vcodec libwebp -preset default -loop 0 -vsync 0 -ptree 0 "${outputPath}"`);
+        // Perintah FFmpeg tanpa flag -ptree
+        await execPromise(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -vcodec libwebp -preset default -loop 0 -vsync 0 "${outputPath}"`);
 
         const webpBuffer = fs.readFileSync(outputPath);
         return webpBuffer;
