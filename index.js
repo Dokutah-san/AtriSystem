@@ -32,6 +32,7 @@ async function startBot() {
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
         auth: state,
+        emitOwnEvents: true,
         browser: ['Ubuntu', 'Chrome', '20.0.04']
     });
 
