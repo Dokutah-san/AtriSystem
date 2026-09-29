@@ -1,35 +1,18 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { createCanvas, loadImage } from '@napi-rs/canvas';
+import Jimp from 'jimp';
 import sharp from 'sharp';
 
 /**
- * Fungsi untuk menggambar teks di atas gambar menggunakan Canvas
+ * Memproses gambar + teks overlay memakai Jimp, lalu dikonversi ke stiker WebP via Sharp
  */
-async function createStickerWithCanvas(imageBuffer, textArgs) {
-    const canvasSize = 512;
-    const canvas = createCanvas(canvasSize, canvasSize);
-    const ctx = canvas.getContext('2d');
+async function createStickerWithJimp(imageBuffer, textArgs) {
+    const stickerSize = 512;
 
-    // 1. Load Gambar Utama
-    const img = await loadImage(imageBuffer);
-    
-    // Hitung posisi gambar agar proporsional (contain) di canvas 512x512
-    const hRatio = canvasSize / img.width;
-    const vRatio = canvasSize / img.height;
-    const ratio = Math.min(hRatio, vRatio);
-    
-    const centerShift_x = (canvasSize - img.width * ratio) / 2;
-    const centerShift_y = (canvasSize - img.height * ratio) / 2;
+    // 1. Baca gambar dengan Jimp & resize secara proporsional ke 512x512
+    const image = await Jimp.read(imageBuffer);
+    image.contain(stickerSize, stickerSize);
 
-    // Gambar background transparan & gambar utama
-    ctx.clearRect(0, 0, canvasSize, canvasSize);
-    ctx.drawImage(
-        img,
-        0, 0, img.width, img.height,
-        centerShift_x, centerShift_y, img.width * ratio, img.height * ratio
-    );
-
-    // 2. Olah Teks & Watermark Pembuat
+    // 2. Olah Teks & Watermark
     if (textArgs && textArgs.length > 0) {
         const textStr = textArgs.join(' ');
         let topText = '';
@@ -46,40 +29,74 @@ async function createStickerWithCanvas(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        // Pengaturan Gaya Teks (Meme Style: Impact/Bold Font dengan Stroke Hitam)
-        ctx.fillStyle = 'white';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 4;
-        ctx.textAlign = 'center';
+        // Font bawaan Jimp
+        const fontLarge = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+        const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
-        // Tulis Teks Atas
+        // Cetak Teks Atas
         if (topText) {
-            const fontSize = Math.max(24, Math.floor(40 - topText.length / 2));
-            ctx.font = `bold ${fontSize}px sans-serif`;
-            ctx.strokeText(topText.toUpperCase(), canvasSize / 2, 50);
-            ctx.fillText(topText.toUpperCase(), canvasSize / 2, 50);
+            image.print(
+                fontLarge,
+                0,
+                20,
+                {
+                    text: topText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+                    alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                },
+                stickerSize,
+                stickerSize
+            );
         }
 
-        // Tulis Teks Bawah
+        // Cetak Teks Bawah
         if (bottomText) {
-            const fontSize = Math.max(24, Math.floor(40 - bottomText.length / 2));
-            ctx.font = `bold ${fontSize}px sans-serif`;
-            ctx.strokeText(bottomText.toUpperCase(), canvasSize / 2, canvasSize - 35);
-            ctx.fillText(bottomText.toUpperCase(), canvasSize / 2, canvasSize - 35);
+            image.print(
+                fontLarge,
+                0,
+                stickerSize - 80,
+                {
+                    text: bottomText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+                    alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                },
+                stickerSize,
+                stickerSize
+            );
         }
+
+        // Watermark Pembuat
+        image.print(
+            fontSmall,
+            0,
+            stickerSize - 25,
+            {
+                text: 'By: ATRI Bot',
+                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT,
+                alignmentY: Jimp.VERTICAL_ALIGN_TOP
+            },
+            stickerSize - 10,
+            stickerSize
+        );
+    } else {
+        // Watermark default jika tanpa teks
+        const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        image.print(
+            fontSmall,
+            0,
+            stickerSize - 25,
+            {
+                text: 'By: ATRI Bot',
+                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT,
+                alignmentY: Jimp.VERTICAL_ALIGN_TOP
+            },
+            stickerSize - 10,
+            stickerSize
+        );
     }
 
-    // 3. Tambahkan Watermark Pembuat di Pojok Kanan Bawah (Kecil)
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.textAlign = 'right';
-    ctx.strokeText('By: ATRI Bot', canvasSize - 10, canvasSize - 10);
-    ctx.fillText('By: ATRI Bot', canvasSize - 10, canvasSize - 10);
-
-    // 4. Konversi Canvas Buffer ke Stiker WebP via Sharp
-    const pngBuffer = canvas.toBuffer('image/png');
+    // 3. Konversi buffer Jimp (PNG) ke format Stiker WebP via Sharp
+    const pngBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
     return await sharp(pngBuffer).webp().toBuffer();
 }
 
@@ -115,7 +132,7 @@ export default {
 
         try {
             const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
-            const stickerBuffer = await createStickerWithCanvas(buffer, args);
+            const stickerBuffer = await createStickerWithJimp(buffer, args);
 
             await sock.sendMessage(from, { sticker: stickerBuffer }, { quoted: msg });
         } catch (error) {
