@@ -1,6 +1,7 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
-import { fontSlabWhite32, fontSlabWhite16 } from '@jimp/font';
+import { loadFont } from '@jimp/plugin-print';
+import { SANS_32_WHITE, SANS_16_WHITE } from '@jimp/plugin-print/fonts';
 import sharp from 'sharp';
 
 /**
@@ -30,9 +31,9 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        // Ambil Font Bitmap bawaan dari @jimp/font
-        const fontLarge = await fontSlabWhite32();
-        const fontSmall = await fontSlabWhite16();
+        // Ambil Font langsung via fungsi loadFont resmi
+        const fontLarge = await loadFont(SANS_32_WHITE);
+        const fontSmall = await loadFont(SANS_16_WHITE);
 
         // Cetak Teks Atas
         if (topText) {
@@ -75,7 +76,7 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
         });
     } else {
         // Watermark Default jika tanpa argumen teks
-        const fontSmall = await fontSlabWhite16();
+        const fontSmall = await loadFont(SANS_16_WHITE);
         image.print({
             font: fontSmall,
             x: 0,
