@@ -1,5 +1,6 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { Jimp, loadFont } from 'jimp';
+import { Jimp } from 'jimp';
+import { fontSlabWhite32, fontSlabWhite16 } from '@jimp/font';
 import sharp from 'sharp';
 
 /**
@@ -8,16 +9,9 @@ import sharp from 'sharp';
 async function createStickerWithJimp(imageBuffer, textArgs) {
     const stickerSize = 512;
 
-    // 1. Baca gambar & resize proporsional (contain) sesuai format objek Jimp v1.x
+    // 1. Baca gambar & resize proporsional (contain)
     const image = await Jimp.read(imageBuffer);
     image.contain({ w: stickerSize, h: stickerSize });
-
-    // Fungsi pemuat font aman untuk Jimp v1.x
-    const getFont = async (fontPath) => {
-        if (typeof loadFont === 'function') return await loadFont(fontPath);
-        if (typeof Jimp.loadFont === 'function') return await Jimp.loadFont(fontPath);
-        throw new Error('Metode loadFont tidak ditemukan pada versi Jimp ini.');
-    };
 
     // 2. Olah Teks & Watermark Pembuat
     if (textArgs && textArgs.length > 0) {
@@ -36,9 +30,9 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        // Ambil Font
-        const fontLarge = await getFont(Jimp.FONT_SANS_32_WHITE);
-        const fontSmall = await getFont(Jimp.FONT_SANS_16_WHITE);
+        // Ambil Font Bitmap bawaan dari @jimp/font
+        const fontLarge = await fontSlabWhite32();
+        const fontSmall = await fontSlabWhite16();
 
         // Cetak Teks Atas
         if (topText) {
@@ -81,7 +75,7 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
         });
     } else {
         // Watermark Default jika tanpa argumen teks
-        const fontSmall = await getFont(Jimp.FONT_SANS_16_WHITE);
+        const fontSmall = await fontSlabWhite16();
         image.print({
             font: fontSmall,
             x: 0,
