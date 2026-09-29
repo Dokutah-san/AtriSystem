@@ -38,6 +38,13 @@ async function addExifMetadata(webpBuffer, packname, author) {
 async function processMemeImage(imageBuffer, textArgs) {
     const stickerSize = 512;
     const image = await Jimp.read(imageBuffer);
+    const originalWidth = image.bitmap.width;
+    const originalHeight = image.bitmap.height;
+    const fitScale = Math.min(stickerSize / originalWidth, stickerSize / originalHeight);
+    const photoWidth = Math.round(originalWidth * fitScale);
+    const photoHeight = Math.round(originalHeight * fitScale);
+    const photoLeft = Math.round((stickerSize - photoWidth) / 2);
+    const photoTop = Math.round((stickerSize - photoHeight) / 2);
     image.contain({ w: stickerSize, h: stickerSize });
 
     if (textArgs && textArgs.length > 0) {
@@ -65,7 +72,7 @@ async function processMemeImage(imageBuffer, textArgs) {
         // and keeps rendering lightweight on Android phones such as the A01.
         const printMemeCaption = (text, position) => {
             const formatted = text.toLocaleUpperCase();
-            const maxTextWidth = stickerSize - 32;
+            const maxTextWidth = Math.max(64, Math.min(stickerSize - 32, photoWidth - 20));
             const maxLines = 3;
             const words = formatted.split(/\s+/).filter(Boolean);
             const lines = [];
@@ -105,7 +112,8 @@ async function processMemeImage(imageBuffer, textArgs) {
             const sourceWidth = Math.max(...lines.map((item) => measureText(fontWhite, item)));
             const sourceHeight = lines.length * lineHeight;
             const desiredWidth = Math.min(maxTextWidth, sourceWidth * 1.65);
-            const desiredHeight = Math.min(150, sourceHeight * 1.65);
+            const maxCaptionHeight = Math.max(1, Math.min(150, photoHeight - 16));
+            const desiredHeight = Math.min(maxCaptionHeight, sourceHeight * 1.65);
             const scale = Math.min(desiredWidth / sourceWidth, desiredHeight / sourceHeight);
             const layer = new Jimp({
                 width: Math.ceil(sourceWidth + padding * 2),
@@ -125,8 +133,10 @@ async function processMemeImage(imageBuffer, textArgs) {
             const resizedWidth = Math.max(1, Math.round((sourceWidth + padding * 2) * scale));
             const resizedHeight = Math.max(1, Math.round((sourceHeight + padding * 2) * scale));
             layer.resize({ w: resizedWidth, h: resizedHeight, mode: ResizeStrategy.NEAREST_NEIGHBOR });
-            const x = Math.round((stickerSize - resizedWidth) / 2);
-            const y = position === 'top' ? 8 : stickerSize - resizedHeight - 8;
+            const x = photoLeft + Math.round((photoWidth - resizedWidth) / 2);
+            const y = position === 'top'
+                ? photoTop + 8
+                : photoTop + photoHeight - resizedHeight - 8;
             image.composite(layer, x, y);
         };
 
