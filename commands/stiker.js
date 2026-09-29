@@ -1,5 +1,5 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { Jimp, loadFont } from 'jimp';
+import { Jimp, loadFont, measureText, ResizeStrategy } from 'jimp';
 import { SANS_32_WHITE, SANS_32_BLACK } from '@jimp/plugin-print/fonts';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -60,40 +60,78 @@ async function processMemeImage(imageBuffer, textArgs) {
         const fontWhite = await loadFont(SANS_32_WHITE);
         const fontBlack = await loadFont(SANS_32_BLACK);
 
-        // Fungsi mencetak teks putih dengan outline hitam tebal di sekelilingnya
-        const printWithOutline = (text, yPos) => {
-            const formatted = text.toUpperCase();
+        // Lay out classic meme captions on a small transparent layer, then scale
+        // the bitmap font to fill the sticker. This avoids tiny fixed 32px text
+        // and keeps rendering lightweight on Android phones such as the A01.
+        const printMemeCaption = (text, position) => {
+            const formatted = text.toLocaleUpperCase();
+            const maxTextWidth = stickerSize - 32;
+            const maxLines = 3;
+            const words = formatted.split(/\s+/).filter(Boolean);
+            const lines = [];
+            let line = '';
 
-            // Offset 8 arah koordinat untuk membuat outline tebal di belakang
-            const strokeOffsets = [
-                [-3, -3], [3, -3], [-3, 3], [3, 3],
-                [-3, 0], [3, 0], [0, -3], [0, 3],
-                [-2, -2], [2, -2], [-2, 2], [2, 2]
-            ];
+            for (const word of words) {
+                const candidate = line ? `${line} ${word}` : word;
+                if (line && measureText(fontWhite, candidate) > maxTextWidth) {
+                    lines.push(line);
+                    line = word;
+                } else {
+                    line = candidate;
+                }
+            }
+            if (line) lines.push(line);
 
-            // 1. Cetak teks hitam di semua arah offset
-            strokeOffsets.forEach(([dx, dy]) => {
-                image.print({
-                    font: fontBlack,
-                    x: dx,
-                    y: yPos + dy,
-                    text: { text: formatted, alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
-                    maxWidth: stickerSize
-                });
+            // Split an unusually long single word so it stays inside the canvas.
+            for (let i = 0; i < lines.length; i++) {
+                while (measureText(fontWhite, lines[i]) > maxTextWidth) {
+                    const current = lines[i];
+                    let cut = current.length - 1;
+                    while (cut > 1 && measureText(fontWhite, current.slice(0, cut)) > maxTextWidth) cut--;
+                    lines[i] = current.slice(0, cut);
+                    lines.splice(i + 1, 0, current.slice(cut));
+                }
+            }
+
+            // Keep the caption compact and readable when the user enters a lot of text.
+            if (lines.length > maxLines) {
+                const joined = lines.slice(maxLines - 1).join(' ');
+                lines.length = maxLines;
+                lines[maxLines - 1] = joined;
+            }
+
+            const padding = 10;
+            const lineHeight = fontWhite.common.lineHeight;
+            const sourceWidth = Math.max(...lines.map((item) => measureText(fontWhite, item)));
+            const sourceHeight = lines.length * lineHeight;
+            const desiredWidth = Math.min(maxTextWidth, sourceWidth * 1.65);
+            const desiredHeight = Math.min(150, sourceHeight * 1.65);
+            const scale = Math.min(desiredWidth / sourceWidth, desiredHeight / sourceHeight);
+            const layer = new Jimp({
+                width: Math.ceil(sourceWidth + padding * 2),
+                height: Math.ceil(sourceHeight + padding * 2),
+                color: 0x00000000
+            });
+            const outline = [[-2, 0], [2, 0], [0, -2], [0, 2], [-2, -2], [2, -2], [-2, 2], [2, 2]];
+
+            lines.forEach((captionLine, index) => {
+                const y = padding + index * lineHeight;
+                for (const [dx, dy] of outline) {
+                    layer.print({ font: fontBlack, x: padding + dx, y: y + dy, text: captionLine });
+                }
+                layer.print({ font: fontWhite, x: padding, y, text: captionLine });
             });
 
-            // 2. Cetak teks putih utama tepat di tengah
-            image.print({
-                font: fontWhite,
-                x: 0,
-                y: yPos,
-                text: { text: formatted, alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
-                maxWidth: stickerSize
-            });
+            const resizedWidth = Math.max(1, Math.round((sourceWidth + padding * 2) * scale));
+            const resizedHeight = Math.max(1, Math.round((sourceHeight + padding * 2) * scale));
+            layer.resize({ w: resizedWidth, h: resizedHeight, mode: ResizeStrategy.NEAREST_NEIGHBOR });
+            const x = Math.round((stickerSize - resizedWidth) / 2);
+            const y = position === 'top' ? 8 : stickerSize - resizedHeight - 8;
+            image.composite(layer, x, y);
         };
 
-        if (topText) printWithOutline(topText, 25);
-        if (bottomText) printWithOutline(bottomText, stickerSize - 75);
+        if (topText) printMemeCaption(topText, 'top');
+        if (bottomText) printMemeCaption(bottomText, 'bottom');
     }
 
     return await image.getBuffer('image/png');
