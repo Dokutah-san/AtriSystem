@@ -3,41 +3,16 @@ import { Jimp, loadFont } from 'jimp';
 import { SANS_32_WHITE } from '@jimp/plugin-print/fonts';
 
 /**
- * Mencetak teks dengan efek outline/stroke hitam tipis di sekeliling teks
- */
-function printMemeText(image, font, text, yPos, stickerSize) {
-    const formattedText = text.toUpperCase();
-
-    // 1. Cetak teks shadow/outline hitam di sekeliling (offset 2px)
-    const offsets = [
-        [-2, -2], [2, -2], [-2, 2], [2, 2],
-        [-2, 0], [2, 0], [0, -2], [0, 2]
-    ];
-
-    // Karena font bitmap bawaan adalah putih, kita cetak teks utama
-    image.print({
-        font: font,
-        x: 0,
-        y: yPos,
-        text: {
-            text: formattedText,
-            alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-        },
-        maxWidth: stickerSize
-    });
-}
-
-/**
  * Memproses gambar + overlay teks meme
  */
 async function processMemeSticker(imageBuffer, textArgs) {
     const stickerSize = 512;
 
-    // 1. Baca gambar & resize proporsional
+    // 1. Baca gambar & resize ke ukuran stiker
     const image = await Jimp.read(imageBuffer);
     image.contain({ w: stickerSize, h: stickerSize });
 
-    // 2. Olah Teks jika ada
+    // 2. Olah Teks jika ada argumen
     if (textArgs && textArgs.length > 0) {
         const textStr = textArgs.join(' ');
         let topText = '';
@@ -51,30 +26,48 @@ async function processMemeSticker(imageBuffer, textArgs) {
                 if (trimmed.startsWith('bottom:')) bottomText = trimmed.substring(7).trim();
             }
         } else {
-            bottomText = textStr; // Default: Teks Bawah
+            bottomText = textStr; // Default ke Teks Bawah
         }
 
-        // Muat Font Bitmap Jimp v1.x via loadFont()
+        // Load font bitmap Jimp v1.x
         const font = await loadFont(SANS_32_WHITE);
 
         // Cetak Teks Atas
         if (topText) {
-            printMemeText(image, font, topText, 20, stickerSize);
+            image.print({
+                font: font,
+                x: 0,
+                y: 20,
+                text: {
+                    text: topText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+                },
+                maxWidth: stickerSize
+            });
         }
 
         // Cetak Teks Bawah
         if (bottomText) {
-            printMemeText(image, font, bottomText, stickerSize - 70, stickerSize);
+            image.print({
+                font: font,
+                x: 0,
+                y: stickerSize - 70,
+                text: {
+                    text: bottomText.toUpperCase(),
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+                },
+                maxWidth: stickerSize
+            });
         }
     }
 
-    // Ambil buffer PNG secara tepat dari Jimp v1.x
+    // Kembalikan buffer PNG
     return await image.getBuffer('image/png');
 }
 
 export default {
     name: 'stiker',
-    description: 'Ubah gambar/stiker menjadi stiker meme dengan teks & metadata AtriAssisten.',
+    description: 'Ubah gambar/stiker menjadi stiker WA dengan metadata AtriAssisten.',
     execute: async (sock, from, msg, args) => {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -88,8 +81,7 @@ export default {
             await sock.sendMessage(from, { 
                 text: '⚠️ Kirim/reply gambar atau stiker dengan perintah *_atri stiker*!\n\n' +
                       '*Contoh penggunaan teks meme:*\n' +
-                      '• `_atri stiker MENYESUAIKAN DIRI`\n' +
-                      '• `_atri stiker top: KETIKA REAKSI | bottom: KITA MENYESUAIKAN`\n' +
+                      '• `_atri stiker REAKSI KITA`\n' +
                       '• `_atri stiker top: TEKS ATAS | bottom: TEKS BAWAH`'
             }, { quoted: msg });
             return;
@@ -101,18 +93,18 @@ export default {
         }
 
         try {
-            // 1. Download media
+            // 1. Download media asli
             const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
 
-            // 2. Olah Teks Meme pada gambar jika ada argumen teks
-            let finalBuffer = buffer;
+            // 2. Olah gambar & teks jika ada argumen teks
+            let outputBuffer = buffer;
             if (args && args.length > 0) {
-                finalBuffer = await processMemeSticker(buffer, args);
+                outputBuffer = await processMemeSticker(buffer, args);
             }
 
-            // 3. Kirim sebagai stiker beserta Exif Metadata (Pack Name & Author)
+            // 3. Kirim sebagai stiker dengan Exif Metadata
             await sock.sendMessage(from, { 
-                sticker: finalBuffer,
+                sticker: outputBuffer,
                 packname: 'AtriAssisten Sticker',
                 author: 'AtriAssisten'
             }, { quoted: msg });
