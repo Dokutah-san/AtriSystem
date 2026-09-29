@@ -1,5 +1,5 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { Jimp } from 'jimp';
+import { Jimp, loadFont } from 'jimp';
 import sharp from 'sharp';
 
 /**
@@ -11,6 +11,13 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
     // 1. Baca gambar & resize proporsional (contain) sesuai format objek Jimp v1.x
     const image = await Jimp.read(imageBuffer);
     image.contain({ w: stickerSize, h: stickerSize });
+
+    // Fungsi pemuat font aman untuk Jimp v1.x
+    const getFont = async (fontPath) => {
+        if (typeof loadFont === 'function') return await loadFont(fontPath);
+        if (typeof Jimp.loadFont === 'function') return await Jimp.loadFont(fontPath);
+        throw new Error('Metode loadFont tidak ditemukan pada versi Jimp ini.');
+    };
 
     // 2. Olah Teks & Watermark Pembuat
     if (textArgs && textArgs.length > 0) {
@@ -29,8 +36,9 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        const fontLarge = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
-        const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        // Ambil Font
+        const fontLarge = await getFont(Jimp.FONT_SANS_32_WHITE);
+        const fontSmall = await getFont(Jimp.FONT_SANS_16_WHITE);
 
         // Cetak Teks Atas
         if (topText) {
@@ -73,7 +81,7 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
         });
     } else {
         // Watermark Default jika tanpa argumen teks
-        const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        const fontSmall = await getFont(Jimp.FONT_SANS_16_WHITE);
         image.print({
             font: fontSmall,
             x: 0,
@@ -87,7 +95,7 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
     }
 
     // 3. Konversi buffer Jimp (PNG) ke format Stiker WebP via Sharp
-    const pngBuffer = await image.getBuffer();
+    const pngBuffer = await image.getBuffer('image/png');
     return await sharp(pngBuffer).webp().toBuffer();
 }
 
