@@ -1,6 +1,6 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import pkg from 'jimp';
-const { Jimp } = pkg;
+import { Jimp } from 'jimp';
+import sharp from 'sharp';
 import sharp from 'sharp';
 
 async function createStickerWithJimp(imageBuffer, textArgs) {
