@@ -2,12 +2,17 @@ import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
 import sharp from 'sharp';
 
+/**
+ * Memproses gambar + teks overlay memakai Jimp v1.x, dikonversi ke stiker WebP via Sharp
+ */
 async function createStickerWithJimp(imageBuffer, textArgs) {
     const stickerSize = 512;
 
+    // 1. Baca gambar & resize proporsional (contain) sesuai format objek Jimp v1.x
     const image = await Jimp.read(imageBuffer);
-    image.contain(stickerSize, stickerSize);
+    image.contain({ w: stickerSize, h: stickerSize });
 
+    // 2. Olah Teks & Watermark Pembuat
     if (textArgs && textArgs.length > 0) {
         const textStr = textArgs.join(' ');
         let topText = '';
@@ -21,71 +26,68 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
                 if (trimmed.startsWith('bottom:')) bottomText = trimmed.substring(7).trim();
             }
         } else {
-            bottomText = textStr;
+            bottomText = textStr; // Default: Teks Bawah
         }
 
         const fontLarge = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
         const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
+        // Cetak Teks Atas
         if (topText) {
-            image.print(
-                fontLarge,
-                0,
-                20,
-                {
+            image.print({
+                font: fontLarge,
+                x: 0,
+                y: 20,
+                text: {
                     text: topText.toUpperCase(),
-                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
-                    alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
                 },
-                stickerSize,
-                stickerSize
-            );
+                maxWidth: stickerSize
+            });
         }
 
+        // Cetak Teks Bawah
         if (bottomText) {
-            image.print(
-                fontLarge,
-                0,
-                stickerSize - 80,
-                {
+            image.print({
+                font: fontLarge,
+                x: 0,
+                y: stickerSize - 80,
+                text: {
                     text: bottomText.toUpperCase(),
-                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
-                    alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
                 },
-                stickerSize,
-                stickerSize
-            );
+                maxWidth: stickerSize
+            });
         }
 
-        image.print(
-            fontSmall,
-            0,
-            stickerSize - 25,
-            {
+        // Watermark Pembuat
+        image.print({
+            font: fontSmall,
+            x: 0,
+            y: stickerSize - 25,
+            text: {
                 text: 'By: ATRI Bot',
-                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT,
-                alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT
             },
-            stickerSize - 10,
-            stickerSize
-        );
+            maxWidth: stickerSize - 10
+        });
     } else {
+        // Watermark Default jika tanpa argumen teks
         const fontSmall = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
-        image.print(
-            fontSmall,
-            0,
-            stickerSize - 25,
-            {
+        image.print({
+            font: fontSmall,
+            x: 0,
+            y: stickerSize - 25,
+            text: {
                 text: 'By: ATRI Bot',
-                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT,
-                alignmentY: Jimp.VERTICAL_ALIGN_TOP
+                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT
             },
-            stickerSize - 10,
-            stickerSize
-        );
+            maxWidth: stickerSize - 10
+        });
     }
 
-    const pngBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+    // 3. Konversi buffer Jimp (PNG) ke format Stiker WebP via Sharp
+    const pngBuffer = await image.getBuffer();
     return await sharp(pngBuffer).webp().toBuffer();
 }
 

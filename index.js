@@ -16,7 +16,7 @@ async function loadCommands() {
     const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
     
     for (const file of commandFiles) {
-        const command = await import(`./commands/${file}`);
+        const command = await import(`./commands/${file}?update=${Date.now()}`); // Cache busting agar reload aman
         if (command.default?.name) {
             commands.set(command.default.name.toLowerCase(), command.default);
         }
@@ -58,31 +58,40 @@ async function startBot() {
 
     // Handler Pesan
     sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message) return;
+        try {
+            const msg = m.messages[0];
+            if (!msg || !msg.message) return;
 
-        const from = msg.key.remoteJid;
-        const text = msg.message.conversation ||
-                     msg.message.extendedTextMessage?.text ||
-                     msg.message.imageMessage?.caption || '';
+            // --- FILTER PESAN REALTIME ---
+            // Mengambil timestamp pesan (dalam detik)
+            const messageTimestamp = Number(msg.messageTimestamp || 0);
+            const currentTimestamp = Math.floor(Date.now() / 1000);
 
-        const trimmedText = text.trim();
-
-        // Strict Filter: Harus diawali '_atri'
-        if (!trimmedText.toLowerCase().startsWith('_atri')) return;
-
-        const args = trimmedText.slice(5).trim().split(/ +/);
-        const commandName = args.shift()?.toLowerCase();
-
-        // Eksekusi Fitur jika ada di folder commands/
-        if (commands.has(commandName)) {
-            const cmd = commands.get(commandName);
-            try {
-                await cmd.execute(sock, from, msg, args, commands);
-            } catch (err) {
-                console.error(`Error pada perintah ${commandName}:`, err);
-                await sock.sendMessage(from, { text: '❌ Terjadi kesalahan saat menjalankan perintah.' }, { quoted: msg });
+            // Jika selisih waktu pengiriman pesan dengan waktu bot saat ini > 30 detik, abaikan (pesan offline)
+            if (currentTimestamp - messageTimestamp > 30) {
+                return;
             }
+
+            const from = msg.key.remoteJid;
+            const text = msg.message.conversation ||
+                         msg.message.extendedTextMessage?.text ||
+                         msg.message.imageMessage?.caption || '';
+
+            const trimmedText = text.trim();
+
+            // Strict Filter: Harus diawali '_atri'
+            if (!trimmedText.toLowerCase().startsWith('_atri')) return;
+
+            const args = trimmedText.slice(5).trim().split(/ +/);
+            const commandName = args.shift()?.toLowerCase();
+
+            // Eksekusi Fitur jika ada di folder commands/
+            if (commands.has(commandName)) {
+                const cmd = commands.get(commandName);
+                await cmd.execute(sock, from, msg, args, commands);
+            }
+        } catch (err) {
+            console.error('Error pada handler pesan:', err);
         }
     });
 }
