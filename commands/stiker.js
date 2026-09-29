@@ -1,6 +1,6 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp, loadFont } from 'jimp';
-import { SANS_32_WHITE } from '@jimp/plugin-print/fonts';
+import { SANS_32_WHITE, SANS_32_BLACK } from '@jimp/plugin-print/fonts';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -56,38 +56,35 @@ async function processMemeImage(imageBuffer, textArgs) {
             bottomText = textStr;
         }
 
-        const font = await loadFont(SANS_32_WHITE);
+        // Muat font putih & hitam dari Jimp
+        const fontWhite = await loadFont(SANS_32_WHITE);
+        const fontBlack = await loadFont(SANS_32_BLACK);
 
-        // Fungsi mencetak dengan efek outline hitam tebal di sekeliling teks
+        // Fungsi mencetak teks putih dengan outline hitam tebal di sekelilingnya
         const printWithOutline = (text, yPos) => {
             const formatted = text.toUpperCase();
-            
-            // Render bayangan/outline hitam di 8 titik koordinat
+
+            // Offset 8 arah koordinat untuk membuat outline tebal di belakang
             const strokeOffsets = [
                 [-3, -3], [3, -3], [-3, 3], [3, 3],
                 [-3, 0], [3, 0], [0, -3], [0, 3],
                 [-2, -2], [2, -2], [-2, 2], [2, 2]
             ];
 
-            // Trik shadow hitam tebal
-            const shadowImg = image.clone();
+            // 1. Cetak teks hitam di semua arah offset
             strokeOffsets.forEach(([dx, dy]) => {
-                shadowImg.print({
-                    font: font,
+                image.print({
+                    font: fontBlack,
                     x: dx,
                     y: yPos + dy,
                     text: { text: formatted, alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
                     maxWidth: stickerSize
                 });
             });
-            shadowImg.color([{ apply: 'xor', params: ['#000000'] }]); // Buat warna jadi hitam
 
-            // Composite shadow ke gambar utama
-            image.composite(shadowImg, 0, 0);
-
-            // Cetak teks putih utama di atasnya
+            // 2. Cetak teks putih utama tepat di tengah
             image.print({
-                font: font,
+                font: fontWhite,
                 x: 0,
                 y: yPos,
                 text: { text: formatted, alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
