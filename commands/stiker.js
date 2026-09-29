@@ -1,7 +1,6 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
 import sharp from 'sharp';
-import sharp from 'sharp';
 
 async function createStickerWithJimp(imageBuffer, textArgs) {
     const stickerSize = 512;
