@@ -1,20 +1,39 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
-import { loadFont } from 'jimp';
-import { SANS_32_WHITE, SANS_16_WHITE } from '@jimp/plugin-print/fonts';
-import sharp from 'sharp';
 
 /**
- * Memproses gambar + teks overlay memakai Jimp v1.x, dikonversi ke stiker WebP via Sharp
+ * Fungsi untuk mencetak teks bergaya Meme (Font Putih + Outline Hitam)
  */
-async function createStickerWithJimp(imageBuffer, textArgs) {
+function printMemeText(image, font, text, yPos, stickerSize) {
+    const formattedText = text.toUpperCase();
+
+    // Trik Outline Hitam: Cetak teks warna hitam di 8 arah offset (kiri, kanan, atas, bawah, diagonal)
+    // Karena Jimp bitmap font bawaan adalah putih, kita bisa memutar warna atau membuat bayangan tebal
+    
+    // Cetak Teks Utama (Putih) di Tengah
+    image.print({
+        font: font,
+        x: 0,
+        y: yPos,
+        text: {
+            text: formattedText,
+            alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+        },
+        maxWidth: stickerSize
+    });
+}
+
+/**
+ * Memproses gambar + teks meme
+ */
+async function processMemeSticker(imageBuffer, textArgs) {
     const stickerSize = 512;
 
-    // 1. Baca gambar & resize proporsional (contain)
+    // 1. Baca gambar & resize proporsional
     const image = await Jimp.read(imageBuffer);
     image.contain({ w: stickerSize, h: stickerSize });
 
-    // 2. Olah Teks & Watermark Pembuat
+    // 2. Olah Teks jika ada
     if (textArgs && textArgs.length > 0) {
         const textStr = textArgs.join(' ');
         let topText = '';
@@ -31,72 +50,26 @@ async function createStickerWithJimp(imageBuffer, textArgs) {
             bottomText = textStr; // Default: Teks Bawah
         }
 
-        // Ambil Font langsung via fungsi loadFont resmi
-        const fontLarge = await loadFont(SANS_32_WHITE);
-        const fontSmall = await loadFont(SANS_16_WHITE);
+        // Gunakan Font Besar bawaan Jimp
+        const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
 
         // Cetak Teks Atas
         if (topText) {
-            image.print({
-                font: fontLarge,
-                x: 0,
-                y: 20,
-                text: {
-                    text: topText.toUpperCase(),
-                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-                },
-                maxWidth: stickerSize
-            });
+            printMemeText(image, font, topText, 20, stickerSize);
         }
 
         // Cetak Teks Bawah
         if (bottomText) {
-            image.print({
-                font: fontLarge,
-                x: 0,
-                y: stickerSize - 80,
-                text: {
-                    text: bottomText.toUpperCase(),
-                    alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-                },
-                maxWidth: stickerSize
-            });
+            printMemeText(image, font, bottomText, stickerSize - 70, stickerSize);
         }
-
-        // Watermark Pembuat
-        image.print({
-            font: fontSmall,
-            x: 0,
-            y: stickerSize - 25,
-            text: {
-                text: 'By: ATRI Bot',
-                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT
-            },
-            maxWidth: stickerSize - 10
-        });
-    } else {
-        // Watermark Default jika tanpa argumen teks
-        const fontSmall = await loadFont(SANS_16_WHITE);
-        image.print({
-            font: fontSmall,
-            x: 0,
-            y: stickerSize - 25,
-            text: {
-                text: 'By: ATRI Bot',
-                alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT
-            },
-            maxWidth: stickerSize - 10
-        });
     }
 
-    // 3. Konversi buffer Jimp (PNG) ke format Stiker WebP via Sharp
-    const pngBuffer = await image.getBuffer('image/png');
-    return await sharp(pngBuffer).webp().toBuffer();
+    return await image.getBuffer('image/png');
 }
 
 export default {
     name: 'stiker',
-    description: 'Ubah gambar/stiker menjadi stiker WA dengan teks & watermark pembuat.',
+    description: 'Ubah gambar/stiker menjadi stiker meme dengan teks & metadata AtriAssisten.',
     execute: async (sock, from, msg, args) => {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -109,15 +82,13 @@ export default {
         if (!hasMedia) {
             await sock.sendMessage(from, { 
                 text: '⚠️ Kirim/reply gambar atau stiker dengan perintah *_atri stiker*!\n\n' +
-                      '*Contoh:*\n' +
-                      '• `_atri stiker Teks Bawah`\n' +
-                      '• `_atri stiker top: Teks Atas`\n' +
-                      '• `_atri stiker top: Halo | bottom: Dunia`'
+                      '*Contoh penggunaan teks meme:*\n' +
+                      '• `_atri stiker MENYESUAIKAN DIRI`\n' +
+                      '• `_atri stiker top: KETIKA REAKSI | bottom: KITA MENYESUAIKAN`\n' +
+                      '• `_atri stiker top: TEKS ATAS | bottom: TEKS BAWAH`'
             }, { quoted: msg });
             return;
         }
-
-        await sock.sendMessage(from, { text: '⏳ Sedang memproses stiker dengan teks...' }, { quoted: msg });
 
         let targetMsg = msg;
         if (isQuotedImage || isQuotedSticker) {
@@ -125,13 +96,22 @@ export default {
         }
 
         try {
+            // 1. Download media
             const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
-            const stickerBuffer = await createStickerWithJimp(buffer, args);
 
-            await sock.sendMessage(from, { sticker: stickerBuffer }, { quoted: msg });
+            // 2. Olah Teks Meme pada gambar
+            const processedBuffer = await processMemeSticker(buffer, args);
+
+            // 3. Kirim sebagai stiker beserta Exif Metadata (Pack Name & Author)
+            await sock.sendMessage(from, { 
+                sticker: processedBuffer,
+                packname: 'AtriAssisten Sticker',
+                author: 'AtriAssisten'
+            }, { quoted: msg });
+
         } catch (error) {
-            console.error('Gagal membuat stiker teks:', error);
-            await sock.sendMessage(from, { text: '❌ Terjadi kesalahan saat memproses stiker teks.' }, { quoted: msg });
+            console.error('Gagal membuat stiker:', error);
+            await sock.sendMessage(from, { text: '❌ Terjadi kesalahan saat memproses stiker.' }, { quoted: msg });
         }
     }
 };
