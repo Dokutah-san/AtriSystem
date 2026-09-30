@@ -84,7 +84,10 @@ async function startBot() {
             if (!trimmedText.toLowerCase().startsWith('_atri')) return;
 
             const args = trimmedText.slice(5).trim().split(/ +/);
-            const commandName = args.shift()?.toLowerCase();
+            
+            // Jika user hanya ketik '_atri', commandName akan menjadi '' (string kosong).
+            // Kita tentukan default-nya ke 'help' jika commandName kosong.
+            const commandName = args.shift()?.toLowerCase() || 'help';
 
             // Eksekusi Fitur jika ada di folder commands/
             if (commands.has(commandName)) {
