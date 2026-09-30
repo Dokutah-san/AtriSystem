@@ -1,3 +1,4 @@
+import 'dotenv/config'; // <--- Tambahkan di baris paling atas index.js
 import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import readline from 'readline';
