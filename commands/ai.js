@@ -1,8 +1,8 @@
-import fetch from 'node-fetch';
+import { GoogleGenAI } from '@google/genai';
 
 export default {
     name: 'ai',
-    description: 'Tanya AI Qwen 2.5 3B Lokal via Ollama',
+    description: 'Tanya AI menggunakan Google Gemini API',
     execute: async (sock, from, msg, args) => {
         const prompt = args.join(' ');
 
@@ -13,38 +13,38 @@ export default {
             return;
         }
 
-        // Ambil konfigurasi dari .env atau gunakan fallback default
-        const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate';
-        const ollamaModel = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
+        const apiKey = process.env.GEMINI_API_KEY;
+        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+        if (!apiKey) {
+            await sock.sendMessage(from, { 
+                text: '❌ GEMINI_API_KEY belum dikonfigurasi di file .env!' 
+            }, { quoted: msg });
+            return;
+        }
 
         // Reaksi bot sedang berpikir
         await sock.sendMessage(from, { react: { text: '🧠', key: msg.key } });
 
         try {
-            const response = await fetch(ollamaUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: ollamaModel,
-                    prompt: prompt,
-                    stream: false
-                })
+            // Inisialisasi Google Gen AI Client
+            const ai = new GoogleGenAI({ apiKey });
+
+            // Panggil API Gemini
+            const response = await ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
             });
 
-            if (!response.ok) {
-                throw new Error(`Server Ollama Error: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            const replyText = data.response.trim();
+            const replyText = response.text.trim();
 
             await sock.sendMessage(from, { text: replyText }, { quoted: msg });
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
         } catch (error) {
-            console.error('Error Ollama AI:', error);
+            console.error('Error Gemini AI:', error);
             await sock.sendMessage(from, { 
-                text: '❌ Gagal menghubungkan ke AI.' 
+                text: '❌ Terjadi kesalahan saat memproses permintaan AI.' 
             }, { quoted: msg });
             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
         }
