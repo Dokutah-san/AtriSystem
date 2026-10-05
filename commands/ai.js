@@ -16,7 +16,7 @@ export default {
         const apiKey = process.env.GEMINI_API_KEY;
         // Daftar model cadangan jika model utama sibuk (503)
         const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-        const fallbackModels = [primaryModel,'gemini-3.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const fallbackModels = [primaryModel,'gemini-3.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash'];
 
         if (!apiKey) {
             await sock.sendMessage(from, { 
