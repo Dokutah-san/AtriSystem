@@ -3,17 +3,16 @@ import { downloadMediaMessage } from '@whiskeysockets/baileys';
 
 export default {
     name: 'ai',
-    description: 'Tanya AI (Mendukung Teks dan Gambar)',
+    description: 'Tanya AtriAssisten(AI)',
     execute: async (sock, from, msg, args) => {
         const prompt = args.join(' ');
 
-        // Cek apakah ada media gambar di pesan langsung atau di pesan yang di-reply (quoted message)
         const isImage = msg.message?.imageMessage;
         const isQuotedImage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
 
         if (!prompt && !isImage && !isQuotedImage) {
             await sock.sendMessage(from, { 
-                text: '⚠️ Silakan masukkan pertanyaan atau sertakan gambar!\nContoh: `_atri ai ini gambar apa?`' 
+                text: '⚠️ *Atri:* Ada yang bisa Atri bantu, Silakan ketik pertanyaan atau kirim gambar ya!' 
             }, { quoted: msg });
             return;
         }
@@ -22,6 +21,10 @@ export default {
         const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
         const fallbackModels = [primaryModel, 'gemini-3.5-flash', 'gemini-3.0-flash'];
 
+        // Ambil kepribadian Atri dari .env
+        const systemInstruction = process.env.AI_PERSONALITY || 
+            "Kamu adalah Atri dari ATRI -My Dear Moments-. Kamu adalah robot humanoid perempuan berperforma tinggi (high-performance robot). Bicaralah dengan ramah, imut, sedikit ceroboh'.";
+
         if (!apiKey) {
             await sock.sendMessage(from, { 
                 text: '❌ GEMINI_API_KEY belum dikonfigurasi di file .env!' 
@@ -29,16 +32,14 @@ export default {
             return;
         }
 
-        await sock.sendMessage(from, { react: { text: '🧠', key: msg.key } });
+        await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
 
         try {
             const contents = [];
 
-            // 1. Jika ada gambar, unduh media dan ubah ke format Base64
             if (isImage || isQuotedImage) {
                 let mediaMsg = msg;
                 if (isQuotedImage) {
-                    // Menyusun objek terstruktur untuk mendownload media yang di-reply
                     mediaMsg = {
                         message: msg.message.extendedTextMessage.contextInfo.quotedMessage
                     };
@@ -55,10 +56,8 @@ export default {
                 });
             }
 
-            // 2. Masukkan teks prompt jika ada (atau gunakan default jika user cuma ngirim gambar)
             contents.push(prompt || 'Jelaskan gambar ini secara detail.');
 
-            // 3. Eksekusi ke Gemini API dengan mekanisme fallback
             const ai = new GoogleGenAI({ apiKey });
             let replyText = null;
             let lastError = null;
@@ -70,7 +69,11 @@ export default {
                     const response = await ai.models.generateContent({
                         model: modelName,
                         contents: contents,
+                        config: {
+                            systemInstruction: systemInstruction,
+                        }
                     });
+
                     replyText = response.text?.trim();
                     if (replyText) break;
                 } catch (error) {
@@ -81,15 +84,15 @@ export default {
 
             if (replyText) {
                 await sock.sendMessage(from, { text: replyText }, { quoted: msg });
-                await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                await sock.sendMessage(from, { react: { text: '✨', key: msg.key } });
             } else {
                 throw lastError;
             }
 
         } catch (error) {
-            console.error('Error Gemini AI Vision:', error);
+            console.error('Error Gemini AI Atri:', error);
             await sock.sendMessage(from, { 
-                text: '❌ Terjadi kesalahan saat memproses gambar/pesan ke AI.' 
+                text: '❌ *Atri:* memori Atri sedikit bermasalah saat memproses ini...' 
             }, { quoted: msg });
             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
         }
