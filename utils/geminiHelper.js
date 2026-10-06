@@ -29,17 +29,27 @@ export function loadLongTermMemory() {
 export function saveFactToMemory(newFact) {
     try {
         const memoryData = loadLongTermMemory();
+
+        // Pastikan objek master_info dan array facts ada
         if (!memoryData.master_info) {
-            memoryData.master_info = { facts: [] };
+            memoryData.master_info = {};
         }
-        
+        if (!Array.isArray(memoryData.master_info.facts)) {
+            memoryData.master_info.facts = [];
+        }
+
+        // Cek apakah fakta sudah ada agar tidak duplikat
         if (!memoryData.master_info.facts.includes(newFact)) {
             memoryData.master_info.facts.push(newFact);
-            fs.writeFileSync(MEMORY_FILE, JSON.stringify(memoryData, null, 2), 'utf-8');
-            console.log(`[MEMORY UPDATE] Facts baru disimpan via Tool Gemini: ${newFact}`);
+            
+            // Tulis kembali seluruh objek JSON dengan rapi
+            fs.writeFileSync(MEMORY_FILE, JSON.stringify(memoryData, null, 4), 'utf-8');
+            console.log(`[MEMORY UPDATE] Fakta baru berhasil disimpan: ${newFact}`);
             return true;
+        } else {
+            console.log(`[MEMORY SKIP] Fakta sudah ada di memori: ${newFact}`);
+            return false;
         }
-        return false;
     } catch (error) {
         console.error('[MEMORY ERROR] Gagal memperbarui memory.json:', error);
         return false;
