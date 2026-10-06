@@ -5,6 +5,9 @@ import path from 'path';
 // Path file memori jangka panjang (JSON)
 const MEMORY_FILE = path.join(process.cwd(), 'memory.json');
 
+// Helper delay untuk Auto-Retry
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Membaca data dari memory.json
  */
@@ -62,50 +65,74 @@ const saveFactTool = {
 };
 
 /**
- * Fungsi Utama untuk Memproses Generasi Konten Gemini API
+ * Fungsi Utama untuk Memproses Generasi Konten Gemini API dengan Auto-Retry
  */
 export async function generateGeminiResponse({ apiKey, fallbackModels, contents, systemInstruction, isMaster }) {
     const ai = new GoogleGenAI({ apiKey });
     let replyText = null;
     let lastError = null;
 
-    const uniqueModels = [...new Set(fallbackModels)];
+    // Gunakan fallback default jika daftar model dari luar kosong
+    const rawModels = (fallbackModels && fallbackModels.length > 0) 
+        ? fallbackModels 
+        : ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.0-flash'];
 
+    const uniqueModels = [...new Set(rawModels)];
+
+    // Perulangan untuk setiap Model Cadangan (Fallback Models)
     for (const modelName of uniqueModels) {
-        try {
-            const config = {
-                systemInstruction,
-                // Function Calling Tool hanya diaktifkan jika pengirim adalah Master
-                tools: isMaster ? [{ functionDeclarations: [saveFactTool] }] : []
-            };
+        const maxRetries = 3; // Coba ulang maksimal 3 kali jika server busy (503/429)
 
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents,
-                config
-            });
+        // Perulangan untuk Auto-Retry
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const config = {
+                    systemInstruction,
+                    tools: isMaster ? [{ functionDeclarations: [saveFactTool] }] : []
+                };
 
-            // Cek apakah Gemini memanggil Tool/Function Call
-            const functionCalls = response.functionCalls;
-            if (functionCalls && functionCalls.length > 0) {
-                for (const call of functionCalls) {
-                    if (call.name === 'save_master_fact') {
-                        const newFact = call.args?.fact;
-                        if (newFact) {
-                            saveFactToMemory(newFact);
-                            replyText = `✨ *Atri:* Atri sudah mencatat fakta baru tentang Master ke dalam memori Atri: _"${newFact}"_!`;
+                const response = await ai.models.generateContent({
+                    model: modelName,
+                    contents,
+                    config
+                });
+
+                // Cek Function Calling
+                const functionCalls = response.functionCalls;
+                if (functionCalls && functionCalls.length > 0) {
+                    for (const call of functionCalls) {
+                        if (call.name === 'save_master_fact') {
+                            const newFact = call.args?.fact;
+                            if (newFact) {
+                                saveFactToMemory(newFact);
+                                replyText = `✨ *Atri:* Atri sudah mencatat info baru tentang Master ke dalam memori Atri: _"${newFact}"_!`;
+                            }
                         }
                     }
+                } else {
+                    replyText = response.text?.trim();
                 }
-            } else {
-                replyText = response.text?.trim();
-            }
 
-            if (replyText) break;
-        } catch (error) {
-            lastError = error;
-            console.warn(`[GEMINI WARN] Model ${modelName} gagal: ${error.message}`);
+                if (replyText) break; // Berhasil, keluar dari loop retry
+
+            } catch (error) {
+                lastError = error;
+                const status = error?.status || error?.error?.code;
+
+                // Jika error 503 (Server Busy) atau 429 (Rate Limit), coba retry dengan jeda
+                if ((status === 503 || status === 429) && attempt < maxRetries) {
+                    const waitTime = attempt * 1500; // Jeda 1.5 detik, lalu 3 detik
+                    console.warn(`[GEMINI WARN] Model ${modelName} sibuk (${status}). Retry percobaan ke-${attempt} dalam ${waitTime}ms...`);
+                    await delay(waitTime);
+                } else {
+                    // Jika error lain (misal 404 Model Not Found) atau retry sudah habis, pindah ke model berikutnya
+                    console.warn(`[GEMINI WARN] Model ${modelName} gagal: ${error.message}`);
+                    break;
+                }
+            }
         }
+
+        if (replyText) break; // Berhasil, keluar dari loop fallback model
     }
 
     if (!replyText) {
