@@ -34,6 +34,7 @@ export default {
         }
 
         const apiKey = process.env.GEMINI_API_KEY;
+        // Menggunakan susunan model persis sesuai keinginan Master
         const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
         const fallbackModels = [primaryModel, 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 
@@ -59,7 +60,32 @@ export default {
         if (!chatMemory.has(from)) chatMemory.set(from, []);
         const history = chatMemory.get(from);
 
-        const formattedUserMessage = `${senderTag}: ${prompt || '[Mengirim Gambar]'}`;
+        // =========================================================================
+        // DETEKSI QUOTED TEXT (Mendukung pesan biasa, terusan, & saluran/newsletter)
+        // =========================================================================
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo 
+            || msg.message?.imageMessage?.contextInfo;
+        const quoted = contextInfo?.quotedMessage;
+
+        let quotedText = '';
+        if (quoted) {
+            quotedText = quoted.conversation 
+                || quoted.extendedTextMessage?.text 
+                || quoted.newsletterAdminInviteMessage?.caption
+                || quoted.imageMessage?.caption
+                || quoted.videoMessage?.caption
+                || quoted.protocolMessage?.editedMessage?.extendedTextMessage?.text
+                || (Object.values(quoted)[0]?.text || Object.values(quoted)[0]?.caption || '');
+        }
+
+        // Gabungkan teks jika Master melakukan Reply ke suatu pesan
+        let fullPrompt = prompt;
+        if (quotedText) {
+            fullPrompt = `[Teks Pesan yang Di-reply/Dikutip]: "${quotedText}"\n\n[Instruksi dari User]: ${prompt || 'Tolong simpan atau proses informasi dari teks di atas.'}`;
+        }
+
+        const formattedUserMessage = `${senderTag}: ${fullPrompt || '[Mengirim Gambar]'}`;
+        // =========================================================================
 
         try {
             const contents = [];
@@ -100,10 +126,9 @@ ATURAN MERESPONS BERDASARKAN PENGIRIM:
 1. Identitas Pengirim Pesan Ini: ${senderTag}
 2. Jika pengirim ditandai sebagai 'Master':
    - Sapa dan perlakukan dia secara istimewa sebagai pencipta/tuan utamamu.
-   - Jika Master memberikan/mengatakan fakta baru tentang dirinya, gunakan fungsi 'save_master_fact' untuk menyimpannya.
-3. Jika pengirim adalah ORANG LAIN/USER BIASA (bukan Master) yang menanyakan tentang Master (misal: "Master sering makan di mana?", "Siapa Reggy?"):
+   - Jika Master memberikan/mengatakan fakta baru tentang dirinya atau meminta menyimpan teks yang di-reply, gunakan fungsi 'save_master_fact' untuk menyimpannya.
+3. Jika pengirim adalah ORANG LAIN/USER BIASA (bukan Master) yang menanyakan tentang Master:
    - Jawab pertanyaan mereka berdasarkan informasi [MEMORI JANGKA PANJANG TENTANG MASTER] secara ramah, sopan, dan alami.
-   - Contoh jawaban: "Master Reggy biasanya sering makan di Rumah Makan Ampera Azka atau Sari Minang! Beliau juga suka minum Es Tebu Jalur ✨"
    - JANGAN gunakan fungsi 'save_master_fact' jika pengirim bukan Master.
 4. Selalu ingat bahwa kamu adalah robot berperforma tinggi (high-performance robot)!`;
 
