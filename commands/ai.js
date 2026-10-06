@@ -1,22 +1,26 @@
 import { GoogleGenAI } from '@google/genai';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
 
 export default {
     name: 'ai',
-    description: 'Tanya AI menggunakan Google Gemini API',
+    description: 'Tanya AI (Mendukung Teks dan Gambar)',
     execute: async (sock, from, msg, args) => {
         const prompt = args.join(' ');
 
-        if (!prompt) {
+        // Cek apakah ada media gambar di pesan langsung atau di pesan yang di-reply (quoted message)
+        const isImage = msg.message?.imageMessage;
+        const isQuotedImage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+
+        if (!prompt && !isImage && !isQuotedImage) {
             await sock.sendMessage(from, { 
-                text: '⚠️ Silakan masukkan pertanyaan!\nContoh: `_atri ai Apa itu Rekayasa Perangkat Lunak?`' 
+                text: '⚠️ Silakan masukkan pertanyaan atau sertakan gambar!\nContoh: `_atri ai ini gambar apa?`' 
             }, { quoted: msg });
             return;
         }
 
         const apiKey = process.env.GEMINI_API_KEY;
-        // Daftar model cadangan jika model utama sibuk (503)
         const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-        const fallbackModels = [primaryModel,'gemini-3.5-flash', 'gemini-3.0-flash'];
+        const fallbackModels = [primaryModel, 'gemini-3.5-flash', 'gemini-3.0-flash'];
 
         if (!apiKey) {
             await sock.sendMessage(from, { 
@@ -27,37 +31,66 @@ export default {
 
         await sock.sendMessage(from, { react: { text: '🧠', key: msg.key } });
 
-        const ai = new GoogleGenAI({ apiKey });
-        let replyText = null;
-        let lastError = null;
+        try {
+            const contents = [];
 
-        // Coba kirim request ke model utama, jika 503 akan coba ke model cadangan
-        for (const modelName of [...new Set(fallbackModels)]) {
-            try {
-                const response = await ai.models.generateContent({
-                    model: modelName,
-                    contents: prompt,
+            // 1. Jika ada gambar, unduh media dan ubah ke format Base64
+            if (isImage || isQuotedImage) {
+                let mediaMsg = msg;
+                if (isQuotedImage) {
+                    // Menyusun objek terstruktur untuk mendownload media yang di-reply
+                    mediaMsg = {
+                        message: msg.message.extendedTextMessage.contextInfo.quotedMessage
+                    };
+                }
+
+                const buffer = await downloadMediaMessage(mediaMsg, 'buffer', {});
+                const base64Image = buffer.toString('base64');
+
+                contents.push({
+                    inlineData: {
+                        mimeType: 'image/jpeg',
+                        data: base64Image
+                    }
                 });
-                replyText = response.text.trim();
-                if (replyText) break; // Berhasil dapat jawaban
-            } catch (error) {
-                lastError = error;
-                console.warn(`[GEMINI WARN] Model ${modelName} gagal (${error.status || error.message}). Mencoba model lain...`);
-            }
-        }
-
-        if (replyText) {
-            await sock.sendMessage(from, { text: replyText }, { quoted: msg });
-            await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-        } else {
-            console.error('Error Gemini AI Semua Model:', lastError);
-            
-            let messageText = '❌ Terjadi kesalahan saat memproses permintaan AI.';
-            if (lastError?.status === 503 || lastError?.message?.includes('503')) {
-                messageText = '⚠️️ Server Gemini sedang padat (503). Silakan coba lagi beberapa saat lagi!';
             }
 
-            await sock.sendMessage(from, { text: messageText }, { quoted: msg });
+            // 2. Masukkan teks prompt jika ada (atau gunakan default jika user cuma ngirim gambar)
+            contents.push(prompt || 'Jelaskan gambar ini secara detail.');
+
+            // 3. Eksekusi ke Gemini API dengan mekanisme fallback
+            const ai = new GoogleGenAI({ apiKey });
+            let replyText = null;
+            let lastError = null;
+
+            const uniqueModels = [...new Set(fallbackModels)];
+
+            for (const modelName of uniqueModels) {
+                try {
+                    const response = await ai.models.generateContent({
+                        model: modelName,
+                        contents: contents,
+                    });
+                    replyText = response.text?.trim();
+                    if (replyText) break;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`[GEMINI WARN] Model ${modelName} gagal (${error.status || error.message}). Mencoba model cadangan...`);
+                }
+            }
+
+            if (replyText) {
+                await sock.sendMessage(from, { text: replyText }, { quoted: msg });
+                await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+            } else {
+                throw lastError;
+            }
+
+        } catch (error) {
+            console.error('Error Gemini AI Vision:', error);
+            await sock.sendMessage(from, { 
+                text: '❌ Terjadi kesalahan saat memproses gambar/pesan ke AI.' 
+            }, { quoted: msg });
             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
         }
     }
