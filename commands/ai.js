@@ -35,7 +35,7 @@ export default {
 
         const apiKey = process.env.GEMINI_API_KEY;
         const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-        const fallbackModels = [primaryModel, 'gemini-3.5-flash', 'gemini-3.0-flash'];
+        const fallbackModels = [primaryModel, 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 
         if (!apiKey) {
             await sock.sendMessage(from, { text: '❌ GEMINI_API_KEY belum dikonfigurasi di .env!' }, { quoted: msg });

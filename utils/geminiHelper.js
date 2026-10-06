@@ -75,7 +75,7 @@ export async function generateGeminiResponse({ apiKey, fallbackModels, contents,
     // Gunakan fallback default jika daftar model dari luar kosong
     const rawModels = (fallbackModels && fallbackModels.length > 0) 
         ? fallbackModels 
-        : ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.0-flash'];
+        : ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 
     const uniqueModels = [...new Set(rawModels)];
 
