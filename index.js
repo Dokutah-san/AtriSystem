@@ -99,6 +99,46 @@ async function startBot() {
             console.error('Error pada handler pesan:', err);
         }
     });
+
+// Event Listener untuk Panggilan Masuk (Call) dengan Proteksi Anti-Spam
+    sock.ev.on('call', async (callEvents) => {
+        for (const call of callEvents) {
+            const callerJid = call.chatId || call.from;
+
+            // 1. Ambil Waktu Panggilan (dalam detik)
+            // Mengakomodasi call.date (Date/number) atau waktu saat ini sebagai fallback
+            let rawTime = call.date || call.time || Date.now();
+            if (rawTime instanceof Date) rawTime = rawTime.getTime();
+            
+            // Jika nilai milidetik, ubah ke detik
+            const callTimestamp = rawTime > 10000000000 ? Math.floor(rawTime / 1000) : rawTime;
+            const currentTimestamp = Math.floor(Date.now() / 1000);
+
+            // Filter Anti-Spam Offline (> 30 detik)
+            if (currentTimestamp - callTimestamp > 30) {
+                console.log(`[CALL IGNORED] Membuang riwayat panggilan lama/offline dari ${callerJid}`);
+                continue;
+            }
+
+            // 2. Tanggapi panggilan yang baru selesai saat bot ONLINE
+            if (call.status === 'timeout' || call.status === 'reject') {
+                console.log(`[MISSED CALL REALTIME] Panggilan tidak terangkat dari: ${callerJid}`);
+
+                try {
+                    const autoReplyText = 
+                        `⚠️ *Pesan Otomatis AtriAssisten*\n\n` +
+                        `Mohon maaf, Master belum sempat mengangkat teleponnya.\n` +
+                        `Silakan tinggalkan pesan melalui chat ini ya, terima kasih! ✨`;
+
+                    await sock.sendMessage(callerJid, { text: autoReplyText });
+                    console.log(`[CALL AUTO-REPLY] Pesan otomatis berhasil dikirim ke ${callerJid}`);
+
+                } catch (error) {
+                    console.error('[CALL ERROR] Gagal mengirim pesan balasan missed call:', error);
+                }
+            }
+        }
+    });
 }
 
 startBot();
