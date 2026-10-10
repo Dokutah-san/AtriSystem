@@ -1,4 +1,4 @@
-import 'dotenv/config'; // <--- Tambahkan di baris paling atas index.js
+import 'dotenv/config'; 
 import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import readline from 'readline';
@@ -30,6 +30,13 @@ global.masterStatus = {
     isOnline: false,
     lastSeen: Date.now()
 };
+
+// ============================================================
+// MEMORI GLOBAL UNTUK PANGGILAN (Di luar startBot agar aman)
+// ============================================================
+const incomingCalls = new Set();
+const answeredCalls = new Set();
+const pendingCallReplies = new Set();
 
 async function startBot() {
     await loadCommands();
@@ -138,42 +145,67 @@ async function startBot() {
         }
     });
 
-// Event Listener untuk Panggilan Masuk (Call) dengan Proteksi Anti-Spam
+    // Event Listener untuk Panggilan Masuk (Call) dengan Proteksi Anti-Spam
     sock.ev.on('call', async (callEvents) => {
         for (const call of callEvents) {
-            const callerJid = call.chatId || call.from;
+            console.log(`[Event Call Detected] Status: ${call.status}, ID: ${call.id}, From: ${call.from || call.chatId}`);
 
-            // 1. Ambil Waktu Panggilan (dalam detik)
-            // Mengakomodasi call.date (Date/number) atau waktu saat ini sebagai fallback
-            let rawTime = call.date || call.time || Date.now();
-            if (rawTime instanceof Date) rawTime = rawTime.getTime();
-            
-            // Jika nilai milidetik, ubah ke detik
-            const callTimestamp = rawTime > 10000000000 ? Math.floor(rawTime / 1000) : rawTime;
-            const currentTimestamp = Math.floor(Date.now() / 1000);
-
-            // Filter Anti-Spam Offline (> 30 detik)
-            if (currentTimestamp - callTimestamp > 30) {
-                console.log(`[CALL IGNORED] Membuang riwayat panggilan lama/offline dari ${callerJid}`);
+            // Abaikan panggilan lama yang disinkronkan saat bot offline
+            if (call.offline) {
+                console.log(`[Call Info] Abaikan panggilan lama yang disinkronkan: ${call.id}`);
                 continue;
             }
 
-            // 2. Tanggapi panggilan yang baru selesai saat bot ONLINE
-            if (call.status === 'timeout' || call.status === 'reject') {
-                console.log(`[MISSED CALL REALTIME] Panggilan tidak terangkat dari: ${callerJid}`);
+            // 1. Tandai jika ada panggilan masuk
+            if (call.status === 'offer' || call.status === 'ringing') {
+                incomingCalls.add(call.id);
+            }
 
-                try {
-                    const autoReplyText = 
-                        `⚠️ *Pesan Otomatis AtriAssisten*\n\n` +
-                        `Mohon maaf, Master belum sempat mengangkat teleponnya.\n` +
-                        `Silakan tinggalkan pesan melalui chat ini ya, terima kasih! ✨`;
+            // 2. Jika panggilan diangkat (dijawab), tandai di answeredCalls
+            if (['accept', 'got_ack', 'connected'].includes(call.status)) {
+                answeredCalls.add(call.id);
+                console.log(`[Call Info] Panggilan ${call.id} diangkat.`);
+            }
 
-                    await sock.sendMessage(callerJid, { text: autoReplyText });
-                    console.log(`[CALL AUTO-REPLY] Pesan otomatis berhasil dikirim ke ${callerJid}`);
+            // 3. Tangkap saat panggilan berakhir (timeout, reject, missed, terminate)
+            const isEnded = ['timeout', 'reject', 'missed', 'terminate'].includes(call.status);
 
-                } catch (error) {
-                    console.error('[CALL ERROR] Gagal mengirim pesan balasan missed call:', error);
-                }
+            if (isEnded && incomingCalls.has(call.id) && !pendingCallReplies.has(call.id)) {
+                const callId = call.id;
+                const callerJid = call.chatId || call.from;
+                pendingCallReplies.add(callId);
+
+                // Beri penundaan 2 detik untuk memastikan status 'accept' sempat tercatat jika diangkat
+                setTimeout(async () => {
+                    // Jika ternyata panggilan sempat DIANGKAT, batalkan pengiriman pesan otomatis
+                    if (answeredCalls.has(callId)) {
+                        console.log(`[Call Info] Panggilan ${callId} sempat diangkat. Batal kirim pesan otomatis.`);
+                        incomingCalls.delete(callId);
+                        answeredCalls.delete(callId);
+                        pendingCallReplies.delete(callId);
+                        return;
+                    }
+
+                    // Jika MURNI tidak diangkat, bersihkan memori lalu kirim pesan otomatis
+                    incomingCalls.delete(callId);
+                    answeredCalls.delete(callId);
+                    pendingCallReplies.delete(callId);
+
+                    if (!callerJid) return;
+
+                    try {
+                        const autoReplyMessage = 
+                            `⚠️ *Pesan Otomatis AtriAssisten*\n\n` +
+                            `Mohon maaf, Master(Pemilik Nomor) belum sempat mengangkat teleponnya (⁠✿⁠'⁠◡⁠'⁠).\n` +
+                            `Silakan tinggalkan pesan melalui chat ini ya, terima kasih! ✨`;
+
+                        await sock.sendMessage(callerJid, { text: autoReplyMessage });
+                        console.log(`[Call Auto-Reply] Pesan tak terjawab berhasil terkirim ke: ${callerJid}`);
+
+                    } catch (error) {
+                        console.error('[Call Error] Gagal mengirim pesan tak terjawab:', error);
+                    }
+                }, 2000);
             }
         }
     });
