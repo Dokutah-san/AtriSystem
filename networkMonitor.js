@@ -12,7 +12,7 @@ async function checkPhoneOnLocalNetwork(targetIp) {
 
 export function startLocalNetworkMonitor(sock) {
     // SEVEN_DAYS_MS (Ganti ke 7 * 24 * 60 * 60 * 1000 untuk produksi, atau 10 * 1000 untuk testing)
-const SEVEN_DAYS_MS = 10 * 1000; // 10 detik untuk testing 
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000; // 7 hari
     const statusFilePath = './network_status.json';
     const configFilePath = './config.json';
 
@@ -94,5 +94,5 @@ const SEVEN_DAYS_MS = 10 * 1000; // 10 detik untuk testing
     setTimeout(runCheck, 3000);
 
     // Interval pengecekan (Ubah ke 60 * 60 * 1000 untuk 1 jam di produksi)
-setInterval(runCheck, 10 * 1000); // Cek setiap 10 detik
+    setInterval(runCheck, 60 * 60 * 1000); // Setiap 1 jam
 }
