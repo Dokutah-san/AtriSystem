@@ -1,35 +1,21 @@
 import { exec } from 'child_process';
 import fs from 'fs';
 
-// Fungsi untuk mengecek apakah HP Utama terhubung ke WiFi rumah via Ping IP Lokal
+// Fungsi untuk mengecek koneksi IP lokal via Ping
 async function checkPhoneOnLocalNetwork(targetIp) {
     return new Promise((resolve) => {
-        // Untuk testing, ubah sementara ke true/false sesuai kebutuhan uji coba
         exec(`ping -c 1 -W 2 ${targetIp}`, (error) => {
-            if (error) {
-                resolve(false); // Gagal ping = offline / di luar rumah
-            } else {
-                resolve(true);  // Berhasil = terkoneksi ke WiFi rumah
-            }
+            resolve(!error);
         });
     });
 }
 
-// Fungsi utama pemantau jaringan
 export function startLocalNetworkMonitor(sock) {
-    const SEVEN_DAYS_MS = 10 * 1000; // DIUBAH JADI 10 DETIK SEMENTARA UNTUK TESTING! (Nanti kembalikan ke 7 * 24 * 60 * 60 * 1000)
+    // SEVEN_DAYS_MS (Ganti ke 7 * 24 * 60 * 60 * 1000 untuk produksi, atau 10 * 1000 untuk testing)
+const SEVEN_DAYS_MS = 10 * 1000; // 10 detik untuk testing 
     const statusFilePath = './network_status.json';
     const configFilePath = './config.json';
 
-    // Inisialisasi file status jika belum ada
-    if (!fs.existsSync(statusFilePath)) {
-        fs.writeFileSync(statusFilePath, JSON.stringify({
-            disconnectStartTime: null,
-            emergencySent: false
-        }, null, 2));
-    }
-
-    // Fungsi logic pengecekan
     const runCheck = async () => {
         try {
             console.log('[NETWORK MONITOR] Memulai pengecekan status jaringan lokal...');
@@ -38,53 +24,64 @@ export function startLocalNetworkMonitor(sock) {
                 console.error('[MONITOR ERROR] File config.json tidak ditemukan!');
                 return;
             }
+
             const config = JSON.parse(fs.readFileSync(configFilePath, 'utf8'));
             const TARGET_HP_IP = config.target_hp_ip;
             const EMERGENCY_NUMBERS = config.emergency_numbers || [];
 
-            let data = JSON.parse(fs.readFileSync(statusFilePath, 'utf8'));
-            
-            // ---> CATATAN TESTING: Ubah baris bawah ini menjadi `const isAtHome = false;` jika ingin memaksa simulasi terputus tanpa ping asli
             const isAtHome = await checkPhoneOnLocalNetwork(TARGET_HP_IP);
-            
             const now = Date.now();
 
-            if (isAtHome) {
-                console.log('[NETWORK MONITOR] HP Master terdeteksi di rumah (SAFE).');
-                if (data.disconnectStartTime !== null) {
-                    data.disconnectStartTime = null;
-                    data.emergencySent = false;
-                    fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
-                }
+            // Inisialisasi/Baca file status
+            let data = {
+                lastState: isAtHome,
+                lastStateChangeTimestamp: now,
+                emergencySent: false
+            };
+
+            if (fs.existsSync(statusFilePath)) {
+                data = JSON.parse(fs.readFileSync(statusFilePath, 'utf8'));
             } else {
-                console.log('[NETWORK MONITOR] HP Master TIDAK terdeteksi di jaringan (Keluar rumah/Offline).');
-                
-                if (data.disconnectStartTime === null) {
-                    data.disconnectStartTime = now;
-                    console.log('[NETWORK MONITOR] Memulai timer perhitungan terputus...');
-                    fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
-                } else if (!data.emergencySent) {
-                    const offlineDuration = now - data.disconnectStartTime;
-                    console.log(`[NETWORK MONITOR] Durasi offline: ${Math.floor(offlineDuration / 1000)} detik.`);
+                fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
+            }
 
-                    if (offlineDuration >= SEVEN_DAYS_MS) {
-                        console.log('[EMERGENCY] Batas waktu terputus tercapai! Mengirim pesan darurat...');
-                        data.emergencySent = true;
-                        fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
+            // 1. CEK APAKAH TERJADI PERUBAHAN STATUS (SAFE REFRESH)
+            if (isAtHome !== data.lastState) {
+                console.log(`[NETWORK MONITOR] Terjadi perubahan status! Dari ${data.lastState ? 'Di Rumah' : 'Luar Rumah'} menjadi ${isAtHome ? 'Di Rumah' : 'Luar Rumah'}. Status: SAFE.`);
+                data.lastState = isAtHome;
+                data.lastStateChangeTimestamp = now;
+                data.emergencySent = false; // Reset status darurat karena ada aktivitas variasi
+                fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
+                return;
+            }
 
-                        const emergencyMessage = 
-                            `🚨 *DARURAT - ATRI SYSTEM ALERT* 🚨\n\n` +
-                            `Sistem mendeteksi HP Master (Reggy Feraldin) tidak terdeteksi di jaringan WiFi rumah secara terus-menerus.\n` +
-                            `Mohon segera lakukan pengecekan keselamatan!`;
+            // 2. JIKA STATUS STAGNAN (SAMA DENGAN SEBELUMNYA)
+            const stagnanceDuration = now - data.lastStateChangeTimestamp;
+            const statusLabel = isAtHome ? 'SELALU DI RUMAH (ONLINE)' : 'SELALU DILUAR RUMAH (OFFLINE)';
 
-                        for (const targetJid of EMERGENCY_NUMBERS) {
-                            try {
-                                await sock.sendMessage(targetJid, { text: emergencyMessage });
-                                console.log(`[EMERGENCY] Pesan darurat sukses terkirim ke ${targetJid}`);
-                            } catch (err) {
-                                console.error(`[EMERGENCY ERROR] Gagal kirim ke ${targetJid}:`, err);
-                            }
-                        }
+            console.log(`[NETWORK MONITOR] Status: ${statusLabel}. Durasi stagnan: ${Math.floor(stagnanceDuration / 1000)} detik.`);
+
+            // 3. JIKA SUDAH STAGNAN SELAMA 7 HARI PENUH
+            if (stagnanceDuration >= SEVEN_DAYS_MS && !data.emergencySent) {
+                console.log(`[EMERGENCY] Peringatan! HP Master berada dalam kondisi "${statusLabel}" secara terus-menerus selama 7 hari tanpa perubahan!`);
+                data.emergencySent = true;
+                fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2));
+
+                const emergencyReason = isAtHome 
+                    ? 'terhubung ke jaringan rumah terus-menerus tanpa pernah terputus/keluar rumah'
+                    : 'tidak terdeteksi di jaringan rumah secara terus-menerus';
+
+                const emergencyMessage = 
+                    `⚠️ *DARURAT - ATRI SYSTEM ALERT* ⚠️\n\n` +
+                    `Sistem mendeteksi HP Pengguna (Reggy Feraldin) ${emergencyReason} selama *7 hari penuh* tanpa adanya variasi aktivitas.\n\n` +
+                    `Mohon segera lakukan pengecekan keselamatan atau konfirmasi keadaan Pengguna!`;
+
+                for (const targetJid of EMERGENCY_NUMBERS) {
+                    try {
+                        await sock.sendMessage(targetJid, { text: emergencyMessage });
+                        console.log(`[EMERGENCY] Pesan darurat sukses terkirim ke ${targetJid}`);
+                    } catch (err) {
+                        console.error(`[EMERGENCY ERROR] Gagal kirim ke ${targetJid}:`, err);
                     }
                 }
             }
@@ -93,9 +90,9 @@ export function startLocalNetworkMonitor(sock) {
         }
     };
 
-    // 1. Jalankan SEKALI LANGSUNG saat bot baru menyala (agar tidak perlu menunggu lama)
+    // Pengecekan pertama saat start
     setTimeout(runCheck, 3000);
 
-    // 2. Jalankan secara berkala (misal setiap 10 detik untuk testing, atau 1 jam untuk production)
-    setInterval(runCheck, 10 * 1000); 
+    // Interval pengecekan (Ubah ke 60 * 60 * 1000 untuk 1 jam di produksi)
+setInterval(runCheck, 10 * 1000); // Cek setiap 10 detik
 }
