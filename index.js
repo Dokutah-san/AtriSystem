@@ -1,3 +1,4 @@
+import { startLocalNetworkMonitor } from './networkMonitor.js';
 import 'dotenv/config'; 
 import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
@@ -60,23 +61,26 @@ async function startBot() {
     }
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
-        } else if (connection === 'open') {
-            console.log('AtriSystem Berhasil Terhubung!');
+            const { connection, lastDisconnect } = update;
+            if (connection === 'close') {
+                const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                if (shouldReconnect) startBot();
+            } else if (connection === 'open') {
+                console.log('AtriSystem Berhasil Terhubung!');
 
-            // Subscribe status presensi nomor Master saat bot terhubung
-            const envMaster = process.env.MASTER_NUMBER ? process.env.MASTER_NUMBER.trim() : '';
-            if (envMaster) {
-                const masterJid = `${envMaster}@s.whatsapp.net`;
-                sock.presenceSubscribe(masterJid).catch(err => 
-                    console.error('[PRESENCE ERROR] Gagal subscribe status Master:', err)
-                );
+                // --- JALANKAN PEMANTAU JARINGAN LOKAL RUMAH ---
+                startLocalNetworkMonitor(sock);
+
+                // Subscribe status presensi nomor Master saat bot terhubung (opsional/bisa dihapus jika tidak dipakai)
+                const envMaster = process.env.MASTER_NUMBER ? process.env.MASTER_NUMBER.trim() : '';
+                if (envMaster) {
+                    const masterJid = `${envMaster}@s.whatsapp.net`;
+                    sock.presenceSubscribe(masterJid).catch(err => 
+                        console.error('[PRESENCE ERROR] Gagal subscribe status Master:', err)
+                    );
+                }
             }
-        }
-    });
+        });
 
     sock.ev.on('creds.update', saveCreds);
 
