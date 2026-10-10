@@ -25,6 +25,12 @@ async function loadCommands() {
     console.log(`[SYSTEM] ${commands.size} perintah berhasil dimuat!`);
 }
 
+// Variabel Global untuk menyimpan status online Master
+global.masterStatus = {
+    isOnline: false,
+    lastSeen: Date.now()
+};
+
 async function startBot() {
     await loadCommands();
 
@@ -53,10 +59,42 @@ async function startBot() {
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('AtriSystem Berhasil Terhubung!');
+
+            // Subscribe status presensi nomor Master saat bot terhubung
+            const envMaster = process.env.MASTER_NUMBER ? process.env.MASTER_NUMBER.trim() : '';
+            if (envMaster) {
+                const masterJid = `${envMaster}@s.whatsapp.net`;
+                sock.presenceSubscribe(masterJid).catch(err => 
+                    console.error('[PRESENCE ERROR] Gagal subscribe status Master:', err)
+                );
+            }
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    // Event Listener untuk Memantau Status Online/Offline Master
+    sock.ev.on('presence.update', (json) => {
+        const envMaster = process.env.MASTER_NUMBER ? process.env.MASTER_NUMBER.trim() : '';
+        if (!envMaster) return;
+
+        const masterJid = `${envMaster}@s.whatsapp.net`;
+        
+        if (json.id === masterJid) {
+            const presences = json.presences[masterJid];
+            if (presences) {
+                const lastPresence = presences.lastKnownPresence; // 'available', 'unavailable', atau 'composing'
+                
+                if (lastPresence === 'available' || lastPresence === 'composing') {
+                    global.masterStatus.isOnline = true;
+                    global.masterStatus.lastSeen = Date.now();
+                } else if (lastPresence === 'unavailable') {
+                    global.masterStatus.isOnline = false;
+                    global.masterStatus.lastSeen = Date.now();
+                }
+            }
+        }
+    });
 
     // Handler Pesan
     sock.ev.on('messages.upsert', async (m) => {
