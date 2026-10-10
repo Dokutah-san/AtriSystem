@@ -3,15 +3,8 @@ import fs from 'fs';
 
 // Fungsi untuk mengecek apakah HP Utama terhubung ke WiFi rumah via Ping IP Lokal
 async function checkPhoneOnLocalNetwork(targetIp) {
-    return new Promise((resolve) => {
-        exec(`ping -c 1 -W 2 ${targetIp}`, (error) => {
-            if (error) {
-                resolve(false); // Gagal ping berarti offline / di luar rumah
-            } else {
-                resolve(true);  // Berhasil berarti terkoneksi ke WiFi rumah
-            }
-        });
-    });
+    // SIMULASI: Paksa bernilai false (seolah-olah HP keluar rumah / tidak terjangkau)
+    return false; 
 }
 
 // Fungsi utama pemantau jaringan
