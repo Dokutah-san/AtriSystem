@@ -126,7 +126,8 @@ async function startBot() {
             const from = msg.key.remoteJid;
             const text = msg.message.conversation ||
                          msg.message.extendedTextMessage?.text ||
-                         msg.message.imageMessage?.caption || '';
+                         msg.message.imageMessage?.caption ||
+                         msg.message.videoMessage?.caption || '';
 
             const trimmedText = text.trim();
 

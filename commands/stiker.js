@@ -1,13 +1,14 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp, loadFont, measureText, ResizeStrategy } from 'jimp';
 import { SANS_32_WHITE, SANS_32_BLACK } from '@jimp/plugin-print/fonts';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import webp from 'node-webpmux';
 
 const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
 
 /**
  * Menyuntikkan Metadata Exif (Pack Name & Author) ke file WebP
@@ -167,6 +168,43 @@ async function convertToWebp(inputBuffer) {
     }
 }
 
+/** Konversi video pendek menjadi stiker WebP animasi. */
+async function convertVideoToAnimatedWebp(inputBuffer) {
+    const tmpDir = path.join(process.cwd(), 'tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const inputPath = path.join(tmpDir, `video_${id}.mp4`);
+    const outputPath = path.join(tmpDir, `sticker_${id}.webp`);
+
+    try {
+        fs.writeFileSync(inputPath, inputBuffer);
+        const profiles = [
+            { fps: 12, quality: 50 },
+            { fps: 10, quality: 40 },
+            { fps: 8, quality: 30 }
+        ];
+
+        for (const profile of profiles) {
+            await execFilePromise('ffmpeg', [
+                '-y', '-i', inputPath, '-t', '8',
+                '-vf', `fps=${profile.fps},scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1`,
+                '-an', '-c:v', 'libwebp_anim', '-loop', '0', '-vsync', '0',
+                '-q:v', String(profile.quality), '-compression_level', '6',
+                outputPath
+            ], { maxBuffer: 5 * 1024 * 1024 });
+
+            const result = fs.readFileSync(outputPath);
+            if (result.length <= 500 * 1024) return result;
+        }
+
+        throw new Error('Ukuran video terlalu besar untuk stiker animasi WhatsApp. Coba video yang lebih pendek.');
+    } finally {
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    }
+}
+
 export default {
     name: 'stiker',
     description: 'Ubah gambar menjadi stiker',
@@ -174,10 +212,12 @@ export default {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         const isQuotedImage = quotedMsg?.imageMessage;
+        const isVideo = msg.message?.videoMessage;
+        const isQuotedVideo = quotedMsg?.videoMessage;
         const isSticker = msg.message?.stickerMessage;
         const isQuotedSticker = quotedMsg?.stickerMessage;
 
-        const hasMedia = isImage || isQuotedImage || isSticker || isQuotedSticker;
+        const hasMedia = isImage || isQuotedImage || isVideo || isQuotedVideo || isSticker || isQuotedSticker;
 
         if (!hasMedia) {
             await sock.sendMessage(from, { 
@@ -190,7 +230,7 @@ export default {
         }
 
         let targetMsg = msg;
-        if (isQuotedImage || isQuotedSticker) {
+        if (isQuotedImage || isQuotedVideo || isQuotedSticker) {
             targetMsg = { message: quotedMsg };
         }
 
@@ -198,11 +238,13 @@ export default {
             // 1. Download media
             const rawBuffer = await downloadMediaMessage(targetMsg, 'buffer', {});
 
-            // 2. Process Meme Image
-            const pngBuffer = await processMemeImage(rawBuffer, args);
-
-            // 3. Convert to WebP via FFmpeg
-            const webpBuffer = await convertToWebp(pngBuffer);
+            let webpBuffer;
+            if (isVideo || isQuotedVideo) {
+                webpBuffer = await convertVideoToAnimatedWebp(rawBuffer);
+            } else {
+                const pngBuffer = await processMemeImage(rawBuffer, args);
+                webpBuffer = await convertToWebp(pngBuffer);
+            }
 
             // 4. Inject Exif Packname & Author Metadata
             const finalStickerWithExif = await addExifMetadata(
