@@ -169,39 +169,75 @@ async function convertToWebp(inputBuffer) {
 }
 
 /** Konversi video pendek menjadi stiker WebP animasi. */
-async function convertVideoToAnimatedWebp(inputBuffer) {
+async function convertVideoToAnimatedWebp(inputBuffer, textArgs = []) {
     const tmpDir = path.join(process.cwd(), 'tmp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
     const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const inputPath = path.join(tmpDir, `video_${id}.mp4`);
     const outputPath = path.join(tmpDir, `sticker_${id}.webp`);
+    const overlayPath = path.join(tmpDir, `text_${id}.png`);
 
     try {
         fs.writeFileSync(inputPath, inputBuffer);
-        const profiles = [
-            { fps: 12, quality: 50 },
-            { fps: 10, quality: 40 },
-            { fps: 8, quality: 30 }
-        ];
+        let hasTextOverlay = false;
 
+        if (textArgs.length) {
+            const { stdout } = await execFilePromise('ffprobe', [
+                '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', inputPath
+            ]);
+            const [videoWidth, videoHeight] = stdout.trim().split('x').map(Number);
+            if (!videoWidth || !videoHeight) throw new Error('Ukuran video tidak bisa dibaca.');
+
+            const fitScale = Math.min(512 / videoWidth, 512 / videoHeight);
+            const blankImage = new Jimp({
+                width: Math.max(1, Math.round(videoWidth * fitScale)),
+                height: Math.max(1, Math.round(videoHeight * fitScale)),
+                color: 0x00000000
+            });
+            const blankPng = await blankImage.getBuffer('image/png');
+            const overlayPng = await processMemeImage(blankPng, textArgs);
+            fs.writeFileSync(overlayPath, overlayPng);
+            hasTextOverlay = true;
+        }
+
+        // Batasi 5 detik dan 8 fps agar waktu encode tetap masuk akal di ponsel.
+        // Satu encode cepat, dengan satu fallback jika hasil melampaui batas WA.
+        const profiles = [
+            { fps: 8, quality: 38 },
+            { fps: 6, quality: 28 }
+        ];
         for (const profile of profiles) {
-            await execFilePromise('ffmpeg', [
-                '-y', '-i', inputPath, '-t', '8',
-                '-vf', `fps=${profile.fps},scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1`,
-                '-an', '-c:v', 'libwebp_anim', '-loop', '0', '-vsync', '0',
-                '-q:v', String(profile.quality), '-compression_level', '6',
-                outputPath
-            ], { maxBuffer: 5 * 1024 * 1024 });
+            const args = ['-y', '-i', inputPath];
+            if (hasTextOverlay) args.push('-loop', '1', '-i', overlayPath);
+
+            const videoFilter = `fps=${profile.fps},scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1`;
+            if (hasTextOverlay) {
+                args.push(
+                    '-filter_complex',
+                    `[0:v]${videoFilter}[base];[base][1:v]overlay=0:0:shortest=1:format=auto[v]`,
+                    '-map', '[v]'
+                );
+            } else {
+                args.push('-vf', videoFilter);
+            }
+
+            args.push(
+                '-t', '5', '-an', '-c:v', 'libwebp_anim', '-loop', '0', '-vsync', '0',
+                '-q:v', String(profile.quality), '-compression_level', '0', outputPath
+            );
+            await execFilePromise('ffmpeg', args, { maxBuffer: 5 * 1024 * 1024 });
 
             const result = fs.readFileSync(outputPath);
             if (result.length <= 500 * 1024) return result;
         }
 
-        throw new Error('Ukuran video terlalu besar untuk stiker animasi WhatsApp. Coba video yang lebih pendek.');
+        throw new Error('Ukuran video masih terlalu besar. Coba video yang lebih pendek.');
     } finally {
         if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
         if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        if (fs.existsSync(overlayPath)) fs.unlinkSync(overlayPath);
     }
 }
 
@@ -229,6 +265,15 @@ export default {
             return;
         }
 
+        const react = async (emoji) => {
+            try {
+                await sock.sendMessage(from, { react: { text: emoji, key: msg.key } });
+            } catch (error) {
+                console.warn('Gagal memberi reaksi status stiker:', error.message);
+            }
+        };
+        await react('⏳');
+
         let targetMsg = msg;
         if (isQuotedImage || isQuotedVideo || isQuotedSticker) {
             targetMsg = { message: quotedMsg };
@@ -240,7 +285,7 @@ export default {
 
             let webpBuffer;
             if (isVideo || isQuotedVideo) {
-                webpBuffer = await convertVideoToAnimatedWebp(rawBuffer);
+                webpBuffer = await convertVideoToAnimatedWebp(rawBuffer, args);
             } else {
                 const pngBuffer = await processMemeImage(rawBuffer, args);
                 webpBuffer = await convertToWebp(pngBuffer);
@@ -257,9 +302,11 @@ export default {
             await sock.sendMessage(from, { 
                 sticker: finalStickerWithExif 
             }, { quoted: msg });
+            await react('✅');
 
         } catch (error) {
             console.error('Gagal membuat stiker:', error.stderr?.toString() || error.stack || error);
+            await react('❌');
             await sock.sendMessage(from, { text: '❌ Terjadi kesalahan saat memproses stiker.' }, { quoted: msg });
         }
     }
