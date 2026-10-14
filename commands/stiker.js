@@ -259,7 +259,7 @@ export default {
             }, { quoted: msg });
 
         } catch (error) {
-            console.error('Gagal membuat stiker:', error);
+            console.error('Gagal membuat stiker:', error.stderr?.toString() || error.stack || error);
             await sock.sendMessage(from, { text: '❌ Terjadi kesalahan saat memproses stiker.' }, { quoted: msg });
         }
     }
