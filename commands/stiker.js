@@ -243,7 +243,7 @@ async function convertVideoToAnimatedWebp(inputBuffer, textArgs = []) {
 
 export default {
     name: 'stiker',
-    description: 'Ubah gambar menjadi stiker',
+    description: 'Ubah gambar/video menjadi stiker(video jadi gif hanya mengambil 5 detik pertama) dengan teks meme opsional',
     execute: async (sock, from, msg, args) => {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -257,7 +257,7 @@ export default {
 
         if (!hasMedia) {
             await sock.sendMessage(from, { 
-                text: '⚠️ Kirim/reply gambar atau stiker dengan perintah *_atri stiker*!\n\n' +
+                text: '⚠️ Kirim/reply gambar atau video dengan perintah *_atri stiker*!\n\n' +
                       '*Contoh penggunaan teks meme:*\n' +
                       '• `_atri stiker REAKSI KITA`\n' +
                       '• `_atri stiker top: TEKS ATAS | bottom: TEKS BAWAH`'
