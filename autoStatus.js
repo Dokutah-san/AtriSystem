@@ -80,7 +80,7 @@ export function startAutoStatusScheduler(sock) {
         const tanggalHariIni = sekarang.toDateString();
 
         // Trigger tepat pada jam 00:00 dan pastikan hanya 1x per tanggal
-        if (jam === 2 && menit === 58 && sudahUploadTanggalIni !== tanggalHariIni) {
+        if (jam === 3 && menit === 4 && sudahUploadTanggalIni !== tanggalHariIni) {
             sudahUploadTanggalIni = tanggalHariIni;
             await uploadStatusSekarang(sock);
         }
