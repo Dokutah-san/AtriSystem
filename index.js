@@ -5,6 +5,7 @@ import pino from 'pino';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
+import { startAutoStatusScheduler } from './autoStatus.js';
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
@@ -60,6 +61,24 @@ async function startBot() {
         }, 3000);
     }
 
+    // Simpan daftar kontak saat Baileys melakukan sinkronisasi awal
+    sock.ev.on('contacts.upsert', (contacts) => {
+        const fileKontak = './contacts.json';
+        let daftarTersimpan = fs.existsSync(fileKontak) 
+            ? JSON.parse(fs.readFileSync(fileKontak, 'utf-8')) 
+            : [];
+
+        for (const c of contacts) {
+            // Ambil hanya JID nomor personal (@s.whatsapp.net), abaikan grup (@g.us)
+            if (c.id && c.id.endsWith('@s.whatsapp.net') && !daftarTersimpan.includes(c.id)) {
+                daftarTersimpan.push(c.id);
+            }
+        }
+
+        fs.writeFileSync(fileKontak, JSON.stringify(daftarTersimpan, null, 2));
+        console.log(`[SYSTEM] Total kontak tersimpan: ${daftarTersimpan.length}`);
+    });
+
     sock.ev.on('connection.update', (update) => {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
@@ -70,6 +89,9 @@ async function startBot() {
 
                 // --- JALANKAN PEMANTAU JARINGAN LOKAL RUMAH ---
                 startLocalNetworkMonitor(sock);
+
+                // --- JALANKAN PENJADWAL AUTO STATUS HARIAN (00:00) ---
+                startAutoStatusScheduler(sock);
 
                 // Subscribe status presensi nomor Master saat bot terhubung (opsional/bisa dihapus jika tidak dipakai)
                 const envMaster = process.env.MASTER_NUMBER ? process.env.MASTER_NUMBER.trim() : '';
