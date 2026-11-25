@@ -4,9 +4,7 @@ import { execSync } from 'child_process';
 
 // Daftar teks deskripsi (caption)
 const CAPTIONS = [
-    "Hari baru dimulai. ✨",
-    "00:00 — Selamat beristirahat.",
-    "Catatan tengah malam. 🌙"
+    "⚠️Status Berkala di Upload by AtriSystem"
 ];
 
 function pilihAcak(array) {
@@ -134,7 +132,7 @@ export function startAutoStatusScheduler(sock) {
         const tanggalHariIni = sekarang.toDateString();
 
         // Trigger tepat pada jam 00:00 dan pastikan hanya 1x per tanggal
-        if (jam === 3 && menit === 23 && sudahUploadTanggalIni !== tanggalHariIni) {
+        if (jam === 3 && menit === 26 && sudahUploadTanggalIni !== tanggalHariIni) {
             sudahUploadTanggalIni = tanggalHariIni;
             await uploadStatusSekarang(sock);
         }
