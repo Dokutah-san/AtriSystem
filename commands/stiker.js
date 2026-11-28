@@ -13,7 +13,7 @@ const execFilePromise = promisify(execFile);
 /**
  * Menyuntikkan Metadata Exif (Pack Name & Author) ke file WebP
  */
-async function addExifMetadata(webpBuffer, packname, author, emojis = ['🤖']) {
+async function addExifMetadata(webpBuffer, packname, author) {
     const img = new webp.Image();
     await img.load(webpBuffer);
 
@@ -21,7 +21,7 @@ async function addExifMetadata(webpBuffer, packname, author, emojis = ['🤖']) 
         'sticker-pack-id': 'AtriAssisten',
         'sticker-pack-name': packname,
         'sticker-pack-publisher': author,
-        'emojis': emojis
+        'emojis': ['🤖']
     };
 
     const exifHeader = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
@@ -64,9 +64,13 @@ async function processMemeImage(imageBuffer, textArgs) {
             bottomText = textStr;
         }
 
+        // Muat font putih & hitam dari Jimp
         const fontWhite = await loadFont(SANS_32_WHITE);
         const fontBlack = await loadFont(SANS_32_BLACK);
 
+        // Lay out classic meme captions on a small transparent layer, then scale
+        // the bitmap font to fill the sticker. This avoids tiny fixed 32px text
+        // and keeps rendering lightweight on Android phones such as the A01.
         const printMemeCaption = (text, position) => {
             const formatted = text.toLocaleUpperCase();
             const maxTextWidth = Math.max(64, Math.min(stickerSize - 32, photoWidth - 20));
@@ -86,6 +90,7 @@ async function processMemeImage(imageBuffer, textArgs) {
             }
             if (line) lines.push(line);
 
+            // Split an unusually long single word so it stays inside the canvas.
             for (let i = 0; i < lines.length; i++) {
                 while (measureText(fontWhite, lines[i]) > maxTextWidth) {
                     const current = lines[i];
@@ -96,6 +101,7 @@ async function processMemeImage(imageBuffer, textArgs) {
                 }
             }
 
+            // Keep the caption compact and readable when the user enters a lot of text.
             if (lines.length > maxLines) {
                 const joined = lines.slice(maxLines - 1).join(' ');
                 lines.length = maxLines;
@@ -140,91 +146,6 @@ async function processMemeImage(imageBuffer, textArgs) {
     }
 
     return await image.getBuffer('image/png');
-}
-
-/**
- * Konversi audio / voice note menjadi stiker WebP bergelombang suara (waveform)
- */
-async function convertAudioToStickerWebp(audioBuffer, textArgs = [], secondsHint = 0) {
-    const tmpDir = path.join(process.cwd(), 'tmp');
-    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-
-    const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const audioPath = path.join(tmpDir, `audio_${id}.ogg`);
-    const wavePath = path.join(tmpDir, `wave_${id}.png`);
-    const webpPath = path.join(tmpDir, `audio_sticker_${id}.webp`);
-
-    try {
-        fs.writeFileSync(audioPath, audioBuffer);
-
-        // Render waveform 440x160 dari audio via FFmpeg
-        await execFilePromise('ffmpeg', [
-            '-y', '-i', audioPath,
-            '-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=440x160:colors=#38bdf8:scale=sqrt',
-            '-frames:v', '1',
-            wavePath
-        ]);
-
-        // Buat kanvas dasar 512x512 gelap elegan
-        const canvas = new Jimp({ width: 512, height: 512, color: 0x111827ff });
-        const fontWhite = await loadFont(SANS_32_WHITE);
-        const fontBlack = await loadFont(SANS_32_BLACK);
-
-        let durText = 'AUDIO';
-        if (secondsHint > 0) {
-            const mins = Math.floor(secondsHint / 60);
-            const secs = Math.floor(secondsHint % 60);
-            durText = mins > 0
-                ? `${mins}:${String(secs).padStart(2, '0')}`
-                : `0:${String(secs).padStart(2, '0')}`;
-        }
-
-        const headerLabel = textArgs.length > 0
-            ? textArgs.join(' ').slice(0, 24)
-            : `VOICE • ${durText}`;
-
-        // Tulis label di bagian atas
-        const labelLayer = new Jimp({ width: 460, height: 64, color: 0x00000000 });
-        const outline = [[-2, 0], [2, 0], [0, -2], [0, 2]];
-        for (const [dx, dy] of outline) {
-            labelLayer.print({ font: fontBlack, x: 16 + dx, y: 12 + dy, text: headerLabel });
-        }
-        labelLayer.print({ font: fontWhite, x: 16, y: 12, text: headerLabel });
-        canvas.composite(labelLayer, 26, 48);
-
-        // Tempel gelombang suara di tengah
-        if (fs.existsSync(wavePath)) {
-            const waveImg = await Jimp.read(wavePath);
-            waveImg.contain({ w: 440, h: 170 });
-            canvas.composite(waveImg, 36, 170);
-        }
-
-        // Tulis durasi di bagian bawah jika user mengisi teks kustom
-        if (textArgs.length > 0 && secondsHint > 0) {
-            const subLayer = new Jimp({ width: 300, height: 56, color: 0x00000000 });
-            subLayer.print({ font: fontWhite, x: 16, y: 10, text: `DURASI ${durText}` });
-            canvas.composite(subLayer, 106, 390);
-        }
-
-        const cardPng = await canvas.getBuffer('image/png');
-        const cardPath = path.join(tmpDir, `card_${id}.png`);
-        fs.writeFileSync(cardPath, cardPng);
-
-        try {
-            await execFilePromise('ffmpeg', [
-                '-y', '-i', cardPath,
-                '-vcodec', 'libwebp', '-q:v', '80',
-                webpPath
-            ]);
-            return fs.readFileSync(webpPath);
-        } finally {
-            if (fs.existsSync(cardPath)) fs.unlinkSync(cardPath);
-        }
-    } finally {
-        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-        if (fs.existsSync(wavePath)) fs.unlinkSync(wavePath);
-        if (fs.existsSync(webpPath)) fs.unlinkSync(webpPath);
-    }
 }
 
 /**
@@ -281,6 +202,8 @@ async function convertVideoToAnimatedWebp(inputBuffer, textArgs = []) {
             hasTextOverlay = true;
         }
 
+        // Batasi 5 detik dan 8 fps agar waktu encode tetap masuk akal di ponsel.
+        // Satu encode cepat, dengan satu fallback jika hasil melampaui batas WA.
         const profiles = [
             { fps: 8, quality: 38 },
             { fps: 6, quality: 28 }
@@ -320,27 +243,24 @@ async function convertVideoToAnimatedWebp(inputBuffer, textArgs = []) {
 
 export default {
     name: 'stiker',
-    description: 'Ubah gambar, video (5 detik pertama), atau audio/voice note menjadi stiker dengan teks opsional',
+    description: 'Ubah gambar/video menjadi stiker(video jadi gif hanya mengambil 5 detik pertama) dengan teks meme opsional',
     execute: async (sock, from, msg, args) => {
         const isImage = msg.message?.imageMessage;
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         const isQuotedImage = quotedMsg?.imageMessage;
         const isVideo = msg.message?.videoMessage;
         const isQuotedVideo = quotedMsg?.videoMessage;
-        const isAudio = msg.message?.audioMessage;
-        const isQuotedAudio = quotedMsg?.audioMessage;
         const isSticker = msg.message?.stickerMessage;
         const isQuotedSticker = quotedMsg?.stickerMessage;
 
-        const hasMedia = isImage || isQuotedImage || isVideo || isQuotedVideo || isAudio || isQuotedAudio || isSticker || isQuotedSticker;
+        const hasMedia = isImage || isQuotedImage || isVideo || isQuotedVideo || isSticker || isQuotedSticker;
 
         if (!hasMedia) {
             await sock.sendMessage(from, { 
-                text: '⚠️ Kirim atau reply gambar, video, atau audio/voice note dengan perintah *_atri stiker*!\n\n' +
-                      '*Contoh penggunaan:*\n' +
+                text: '⚠️ Kirim/reply gambar atau video dengan perintah *_atri stiker*!\n\n' +
+                      '*Contoh penggunaan teks meme:*\n' +
                       '• `_atri stiker REAKSI KITA`\n' +
-                      '• `_atri stiker top: TEKS ATAS | bottom: TEKS BAWAH`\n' +
-                      '• Reply voice note/audio lalu ketik `_atri stiker QUOTE VN`'
+                      '• `_atri stiker top: TEKS ATAS | bottom: TEKS BAWAH`'
             }, { quoted: msg });
             return;
         }
@@ -355,34 +275,30 @@ export default {
         await react('⏳');
 
         let targetMsg = msg;
-        if (isQuotedImage || isQuotedVideo || isQuotedAudio || isQuotedSticker) {
+        if (isQuotedImage || isQuotedVideo || isQuotedSticker) {
             targetMsg = { message: quotedMsg };
         }
 
         try {
+            // 1. Download media
             const rawBuffer = await downloadMediaMessage(targetMsg, 'buffer', {});
 
             let webpBuffer;
-            let emojis = ['🤖'];
-
-            if (isAudio || isQuotedAudio) {
-                const audioMeta = isAudio || isQuotedAudio;
-                webpBuffer = await convertAudioToStickerWebp(rawBuffer, args, audioMeta?.seconds || 0);
-                emojis = ['🎵', '🎙️'];
-            } else if (isVideo || isQuotedVideo) {
+            if (isVideo || isQuotedVideo) {
                 webpBuffer = await convertVideoToAnimatedWebp(rawBuffer, args);
             } else {
                 const pngBuffer = await processMemeImage(rawBuffer, args);
                 webpBuffer = await convertToWebp(pngBuffer);
             }
 
+            // 4. Inject Exif Packname & Author Metadata
             const finalStickerWithExif = await addExifMetadata(
                 webpBuffer, 
                 'AtriAssisten Sticker', 
-                'AtriAssisten',
-                emojis
+                'AtriAssisten'
             );
 
+            // 5. Send Sticker
             await sock.sendMessage(from, { 
                 sticker: finalStickerWithExif 
             }, { quoted: msg });
